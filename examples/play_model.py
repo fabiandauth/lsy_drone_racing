@@ -11,11 +11,11 @@ from mpl_toolkits.mplot3d import Axes3D
 def play_trained_model(model_path: str, config_path: str, gui: bool = False,episodes_path: str = "episodes/"):
     """Load a trained model and play it in the environment."""
     # Create environment
-    env = DummyVecEnv([lambda: create_race_env(Path(config_path), gui=False)])
+    env = DummyVecEnv([lambda: create_race_env(Path(config_path), gui=True, multiprocess=False)])
     # Load the trained model
-    model = PPO.load(model_path)
+    model = PPO.load(model_path, env=env)
     # Set the model's environment
-    model.set_env(env)
+    #model.set_env(env)
     # Play the model in the environment
     episodes = 5
     for i in range(episodes):
@@ -55,7 +55,7 @@ def play_trained_model(model_path: str, config_path: str, gui: bool = False,epis
             ax = fig.add_subplot(111, projection='3d')
             ax.plot(x_coords, y_coords, z_coords)
 
-            # Set labels and title
+            # Set labels and title˚
             ax.set_xlabel('X')
             ax.set_ylabel('Y')
             ax.set_zlabel('Z')
@@ -66,7 +66,7 @@ def play_trained_model(model_path: str, config_path: str, gui: bool = False,epis
     return ret, episode_length
 
 if __name__ == '__main__':
-    model_path = "trained_models/2024-06-06_21-44-07/best_model.zip"
+    model_path = "trained_models/2024-06-10_12-17-02/model_480000_steps.zip"
     episodes_path = os.path.dirname(model_path) + "/"
     config_path = "config/getting_started.yaml"
     ret, episode_length = play_trained_model(model_path, config_path, 100, episodes_path)
