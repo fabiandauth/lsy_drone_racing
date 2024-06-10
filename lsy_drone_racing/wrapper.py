@@ -26,6 +26,8 @@ from gymnasium import Env, Wrapper
 from gymnasium.error import InvalidAction
 from gymnasium.spaces import Box
 from safe_control_gym.controllers.firmware.firmware_wrapper import FirmwareWrapper
+from scipy import interpolate
+import matplotlib.pyplot as plt
 
 from lsy_drone_racing.rotations import map2pi
 
@@ -327,6 +329,7 @@ class MultiProcessingWrapper(Wrapper):
             env: The firmware wrapper.
         """
         super().__init__(env)
+        
 
     def reset(self, *args: Any, **kwargs: dict[str, Any]) -> tuple[np.ndarray, dict]:
         """Reset the environment.
@@ -356,6 +359,7 @@ class RewardWrapper(Wrapper):
         """
         super().__init__(env)
         self._last_gate = None
+        self.iteration = 0
 
     def reset(self, *args: Any, **kwargs: dict[str, Any]) -> np.ndarray:
         """Reset the environment.
@@ -369,6 +373,11 @@ class RewardWrapper(Wrapper):
         """
         obs, info = self.env.reset(*args, **kwargs)
         self._last_gate = info["current_gate_id"]
+        self.initial_obs = obs
+        self.initial_info = info
+        self.iteration = 0
+        self._generate_ref_waipoints(info)
+
         return obs, info
 
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict]:
@@ -382,6 +391,7 @@ class RewardWrapper(Wrapper):
         """
         obs, reward, terminated, truncated, info = self.env.step(action)
         reward = self._compute_reward(obs, reward, terminated, truncated, info)
+        self.iteration += 1
         return obs, reward, terminated, truncated, info
 
     def _compute_reward(
@@ -399,17 +409,100 @@ class RewardWrapper(Wrapper):
         Returns:
             The computed reward.
         """
-        gate_id = info["current_gate_id"]
-        gate_reward = np.exp(-np.linalg.norm(info["gates_pose"][gate_id, :3] - obs[:3]))
-        if gate_id == self._last_gate:
-            gate_passed_reward = 0 
-        else:
-            gate_passed_reward = 0.1
-        if terminated and not info["task_completed"]: 
-            crash_penality = -1 
-        else:
-            crash_penality = 0
-        
-        rew = gate_reward + crash_penality + gate_passed_reward
-        print(f"Reward from _compute_reward: {rew}")
-        return rew
+        drone_x = obs[0]
+        drone_y = obs[1]
+        drone_z = obs[2]
+
+        drone_position = np.array([drone_x, drone_y, drone_z])
+        ref_position = np.array([self.ref_x[self.iteration], self.ref_y[self.iteration], self.ref_z[self.iteration]])
+        distance = np.linalg.norm(drone_position - ref_position)
+        rew = -distance
+
+        return rew + reward
+
+    def _generate_ref_waipoints(self, info: dict):
+        waypoints = []
+        waypoints.append([self.initial_obs[0], self.initial_obs[1], 0.3])
+        gates = self.initial_info["nominal_gates_pos_and_type"]
+        z_low = self.initial_info["gate_dimensions"]["low"]["height"]
+        z_high = self.initial_info["gate_dimensions"]["tall"]["height"]
+        waypoints.append([1, 0, z_low])
+        waypoints.append([gates[0][0] + 0.2, gates[0][1] + 0.1, z_low])
+        waypoints.append([gates[0][0] + 0.1, gates[0][1], z_low])
+        waypoints.append([gates[0][0] - 0.1, gates[0][1], z_low])
+        waypoints.append(
+            [
+                (gates[0][0] + gates[1][0]) / 2 - 0.7,
+                (gates[0][1] + gates[1][1]) / 2 - 0.3,
+                (z_low + z_high) / 2,
+            ]
+        )
+        waypoints.append(
+            [
+                (gates[0][0] + gates[1][0]) / 2 - 0.5,
+                (gates[0][1] + gates[1][1]) / 2 - 0.6,
+                (z_low + z_high) / 2,
+            ]
+        )
+        waypoints.append([gates[1][0] - 0.3, gates[1][1] - 0.2, z_high])
+        waypoints.append([gates[1][0] + 0.2, gates[1][1] + 0.2, z_high])
+        waypoints.append([gates[2][0], gates[2][1] - 0.4, z_low])
+        waypoints.append([gates[2][0], gates[2][1] + 0.2, z_low])
+        waypoints.append([gates[2][0], gates[2][1] + 0.2, z_high + 0.2])
+        waypoints.append([gates[3][0], gates[3][1] + 0.1, z_high])
+        waypoints.append([gates[3][0], gates[3][1] - 0.1, z_high + 0.1])
+        waypoints.append(
+            [
+                self.initial_info["x_reference"][0],
+                self.initial_info["x_reference"][2],
+                self.initial_info["x_reference"][4],
+            ]
+        )
+        waypoints.append(
+            [
+                self.initial_info["x_reference"][0],
+                self.initial_info["x_reference"][2] - 0.2,
+                self.initial_info["x_reference"][4],
+            ]
+        )
+        waypoints = np.array(waypoints)
+
+        tck, u = interpolate.splprep([waypoints[:, 0], waypoints[:, 1], waypoints[:, 2]], s=0.1)
+        self.waypoints = waypoints
+        duration = 12
+        t = np.linspace(0, 1, int(duration * self.initial_info["ctrl_freq"]))
+        self.ref_x, self.ref_y, self.ref_z = interpolate.splev(t, tck)
+
+        takeoff_duration = 2  # seconds
+        takeoff_steps = int(takeoff_duration * self.initial_info["ctrl_freq"])
+        takeoff_z = np.linspace(0.07, self.initial_obs[2], takeoff_steps)
+
+        self.ref_x = np.concatenate((np.full(takeoff_steps, self.initial_obs[0]), self.ref_x))
+        self.ref_y = np.concatenate((np.full(takeoff_steps, self.initial_obs[1]), self.ref_y))
+        self.ref_z = np.concatenate((takeoff_z, self.ref_z))
+
+        #plot reference trajectory in 3D
+        if False:
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
+            ax.plot(self.ref_x, self.ref_y, self.ref_z)    
+            # Plot start and end point
+            ax.scatter(self.ref_x[0], self.ref_y[0], self.ref_z[0], c='green', label='Start')
+            ax.scatter(self.ref_x[-1], self.ref_y[-1], self.ref_z[-1], c='red', label='End')
+
+            # Plot the initial position
+            ax.scatter(self.initial_obs[0], self.initial_obs[1], 0.3, c='orange', label='Initial Position')
+
+            # Plot vertical lines for gates
+            for gate in gates:
+                x, y, z, _, _, _, _ = gate
+                ax.plot([x, x], [y, y], [0, 1], color='blue', label='Gate')
+
+            # Plot vertical lines for obstacles
+            #for obstacle in self.OBSTACLES:
+            #    x, y, z, _, _, _ = obstacle
+            #   ax.plot([x, x], [y, y], [0, 1], color='red', label='Obstacle')
+            ax.legend()
+            plt.show()
+
+        assert max(self.ref_z) < 2.5, "Drone must stay below the ceiling"
