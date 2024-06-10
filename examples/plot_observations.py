@@ -93,5 +93,5 @@ def plot_trajectories(folder_path):
 
 
 if __name__ == '__main__':
-    folder_path = '/Users/michaelloncsek/Privat/TUM_Master/lsy_drone/lsy_drone_racing/trained_models/2024-06-03_10-00-58/episodes'
+    folder_path = 'trained_models/2024-06-06_21-44-07/episodes'
     plot_trajectories(folder_path)
