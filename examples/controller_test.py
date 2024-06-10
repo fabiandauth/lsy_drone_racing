@@ -100,7 +100,7 @@ class Controller(BaseController):
         check_env(self.env)
 
         #load respective RL-model
-        model_path = "trained_models/2024-06-03_11-38-21/best_model.zip"
+        model_path = "trained_models/2024-06-03_21-54-08/model_2520000_steps.zip"
         self.model = PPO.load(model_path)
         self.model.set_env(self.env)
 
@@ -146,20 +146,15 @@ class Controller(BaseController):
         command_type = Command.FULLSTATE
 
         action, states = self.model.predict(obs)
-        self.x, reward, terminated, info, done  = self.env.step(action)
-        if terminated == False:
-            self.env.reset()
-            print("reset environment")
 
-        target_pos = [float(i) for i in (self.x[0:3])]
+        target_pos = [float(i) for i in (action[0:3])]
         target_vel = np.zeros(3)
         target_acc = np.zeros(3)
-        target_yaw = 0.0
+        target_yaw = float(action[3])
         target_rpy_rates = np.zeros(3)
         args = [target_pos, target_vel, target_acc, target_yaw, target_rpy_rates, ep_time]
 
-        print('target position is:', target_pos, ep_time)
-        print('states: ', states)
+        print('x:', action[0], ' y:', action[1], 'z: ', action[2], 'yaw:', target_yaw)
 
         #########################
         # REPLACE THIS (END) ####
