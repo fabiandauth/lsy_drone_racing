@@ -19,18 +19,21 @@ from sb3_contrib import RecurrentPPO
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, EvalCallback
 
+from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.env_util import make_vec_env
 
 from lsy_drone_racing.constants import FIRMWARE_FREQ
 from lsy_drone_racing.utils import load_config
-from lsy_drone_racing.wrapper import DroneRacingWrapper
+from lsy_drone_racing.wrapper import DroneRacingWrapper, RewardWrapper, MultiProcessingWrapper
 import datetime
 
 from train_utils import save_observations, process_observation
+import multiprocessing
 
 logger = logging.getLogger(__name__)
 
 
-def create_race_env(config_path: Path, gui: bool = False) -> DroneRacingWrapper:
+def create_race_env(config_path: Path, gui: bool = False, multiprocess: bool = True) -> DroneRacingWrapper:
     """
     Creates a drone racing environment.
 
@@ -45,19 +48,32 @@ def create_race_env(config_path: Path, gui: bool = False) -> DroneRacingWrapper:
         AssertionError: If firmware must be used for the competition.
         AssertionError: If pyb_freq is not a multiple of firmware freq.
     """
-    # Load configuration and check if firmware should be used.
-    config = load_config(config_path)
-    # Overwrite config options
-    config.quadrotor_config.gui = gui
-    CTRL_FREQ = config.quadrotor_config["ctrl_freq"]
-    # Create environment
-    assert config.use_firmware, "Firmware must be used for the competition."
-    pyb_freq = config.quadrotor_config["pyb_freq"]
-    assert pyb_freq % FIRMWARE_FREQ == 0, "pyb_freq must be a multiple of firmware freq"
-    config.quadrotor_config["ctrl_freq"] = FIRMWARE_FREQ
-    env_factory = partial(make, "quadrotor", **config.quadrotor_config)
-    firmware_env = make("firmware", env_factory, FIRMWARE_FREQ, CTRL_FREQ)
-    return DroneRacingWrapper(firmware_env, terminate_on_lap=True)
+    def create_env():
+        # Load configuration and check if firmware should be used.
+        config = load_config(config_path)
+        # Overwrite config options
+        config.quadrotor_config.gui = gui
+        CTRL_FREQ = config.quadrotor_config["ctrl_freq"]
+        # Create environment
+        assert config.use_firmware, "Firmware must be used for the competition."
+        pyb_freq = config.quadrotor_config["pyb_freq"]
+        assert pyb_freq % FIRMWARE_FREQ == 0, "pyb_freq must be a multiple of firmware freq"
+        config.quadrotor_config["ctrl_freq"] = FIRMWARE_FREQ
+        env_factory = partial(make, "quadrotor", **config.quadrotor_config)
+        firmware_env = make("firmware", env_factory, FIRMWARE_FREQ, CTRL_FREQ)
+        env = DroneRacingWrapper(firmware_env, terminate_on_lap=True)
+        env = RewardWrapper(env)
+        env = MultiProcessingWrapper(env)
+        return env
+    if multiprocess:
+        num_cores = multiprocessing.cpu_count()
+        print("Number of CPU cores:", num_cores)
+        env = make_vec_env(lambda: create_env(), n_envs=num_cores, vec_env_cls=SubprocVecEnv)
+
+    else:
+        env = create_env()
+
+    return env
 
 
 def main(config: str = "config/getting_started.yaml", gui: bool = False):
@@ -72,17 +88,16 @@ def main(config: str = "config/getting_started.yaml", gui: bool = False):
     log_path = Path(__file__).resolve().parents[1] / f"trained_models/logs/{current_datetime}/"
     log_path.mkdir(parents=True, exist_ok=True)
 
-
     logging.basicConfig(level=logging.INFO)
     config_path = Path(__file__).resolve().parents[1] / config
-    env = create_race_env(config_path=config_path, gui=gui)
-    check_env(env)  # Sanity check to ensure the environment conforms to the sb3 API
+
+    env = create_race_env(config_path, gui=gui, multiprocess=True)
 
     epochs = 1000
     n_steps = 2048
 
     checkpoint_callback = CheckpointCallback(save_freq=10000, save_path=save_path, name_prefix="model")
-    eval_env = env
+    eval_env = create_race_env(config_path, gui=gui, multiprocess=False)
     eval_callback = EvalCallback(eval_env=eval_env, eval_freq=20000, best_model_save_path=save_path, deterministic=True, render=False)
 
     callback = CallbackList([checkpoint_callback, eval_callback])
@@ -90,7 +105,7 @@ def main(config: str = "config/getting_started.yaml", gui: bool = False):
     # for tensorboard logging start tensorboard with the following command in a seperate terminal:
     # tensorboard --logdir trained_models/logs
 
-    model = RecurrentPPO("MlpLstmPolicy", 
+    model = PPO("MlpPolicy", 
                 env, verbose=1,
                 learning_rate=3e-5,
                 n_steps=n_steps,
@@ -106,27 +121,6 @@ def main(config: str = "config/getting_started.yaml", gui: bool = False):
     )
 
     model.save(save_path / f"model.zip")
-
-    # Get the observations from the environment
-    obs_list = []
-    vec_env = model.get_env()
-
-    x = vec_env.reset()
-
-    process_observation(x, True)
-
-    done = False
-
-    ret = 0.
-    episode_length = 0
-    while not done:
-        action, *_ = model.predict(x)
-        x, r, done ,info = vec_env.step(action)
-        ret += r
-        episode_length += 1
-        obs_list.append(process_observation(x, False))
-
-    save_observations(obs_list, save_path, current_datetime)
 
     print(save_path)
     
