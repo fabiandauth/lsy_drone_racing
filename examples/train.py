@@ -33,7 +33,7 @@ import multiprocessing
 logger = logging.getLogger(__name__)
 
 
-def create_race_env(config_path: Path, gui: bool = False, multiprocess: bool = True) -> DroneRacingWrapper:
+def create_race_env(config_path: Path, gui: bool = False, multiprocess = True) -> DroneRacingWrapper:
     """
     Creates a drone racing environment.
 
@@ -65,7 +65,7 @@ def create_race_env(config_path: Path, gui: bool = False, multiprocess: bool = T
         env = RewardWrapper(env)
         env = MultiProcessingWrapper(env)
         return env
-    if multiprocess:
+    if multiprocess is True:
         num_cores = multiprocessing.cpu_count()
         print("Number of CPU cores:", num_cores)
         env = make_vec_env(lambda: create_env(), n_envs=num_cores, vec_env_cls=SubprocVecEnv)
