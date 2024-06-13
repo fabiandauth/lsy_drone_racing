@@ -33,7 +33,7 @@ from scipy import interpolate
 from lsy_drone_racing.command import Command
 from lsy_drone_racing.controller import BaseController
 from lsy_drone_racing.utils import draw_trajectory
-
+import pybullet as p
 
 class Controller(BaseController):
     """Template controller class."""
@@ -76,7 +76,6 @@ class Controller(BaseController):
         # Reset counters and buffers.
         self.reset()
         self.episode_reset()
-
         #########################
         # REPLACE THIS (START) ##
         #########################
@@ -190,6 +189,7 @@ class Controller(BaseController):
         else:
             step = iteration - 2 * self.CTRL_FREQ  # Account for 2s delay due to takeoff
             if ep_time - 2 > 0 and step < len(self.ref_x):
+                p.addUserDebugPoints([[self.ref_x[step], self.ref_y[step], self.ref_z[step]]], pointSize=3, pointColorsRGB=[[0,0,1]])
                 target_pos = np.array([self.ref_x[step], self.ref_y[step], self.ref_z[step]])
                 target_vel = np.zeros(3)
                 target_acc = np.zeros(3)
