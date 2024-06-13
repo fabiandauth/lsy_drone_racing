@@ -30,6 +30,9 @@ from scipy import interpolate
 import matplotlib.pyplot as plt
 
 from lsy_drone_racing.rotations import map2pi
+from lsy_drone_racing.train_utils import _generate_ref_waipoints
+import pybullet as p
+
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +104,8 @@ class DroneRacingWrapper(Wrapper):
         obs_limits_low = np.concatenate([-obs_limits_high[:-1], [-1]])
         self.observation_space = Box(obs_limits_low, obs_limits_high, dtype=np.float32)
 
+        self.ref_x, self.ref_y, self.ref_z, self.waypoints = _generate_ref_waipoints("config/getting_started.yaml")
+
         self.pyb_client_id: int = env.env.PYB_CLIENT
         # Config and helper flags
         self.terminate_on_lap = terminate_on_lap
@@ -158,10 +163,17 @@ class DroneRacingWrapper(Wrapper):
             # with the gymnasium interface and popular RL libraries.
             raise InvalidAction(f"Invalid action: {action}")
         action = self._action_transform(action)
+
+        #it = int(self._sim_time * 30)
+
+        #ref_position = np.array([self.ref_x[it], self.ref_y[it], self.ref_z[it], 0])
+        
+        #action = self._action_transform(ref_position)
+
         assert action.shape[-1] == 4, "Action must have shape (..., 4)"
         # The firmware does not use the action input in the step function
         zeros = np.zeros(3)
-        self.env.sendFullStateCmd(action[:3], zeros, zeros, action[3], zeros, self._sim_time)
+        self.env.sendFullStateCmd(action[:3], zeros, zeros, 0, zeros, self._sim_time)
         # The firmware quadrotor env requires the sim time as input to the step function. It also
         # returns the desired rotor forces. Both modifications are not part of the gymnasium
         # interface. We automatically insert the sim time and reuse the last rotor forces.
@@ -198,7 +210,9 @@ class DroneRacingWrapper(Wrapper):
         Returns:
             The transformed action.
         """
-        action = self._drone_pose + (action * self.action_scale)
+        #action = self._drone_pose + (action * self.action_scale)
+        action = (action * self.action_scale)
+        p.addUserDebugPoints([[action[0], action[1], action[2]]], pointSize=3, pointColorsRGB=[[1,0,0]])
         action[3] = map2pi(action[3])  # Ensure yaw is in [-pi, pi]
         return action
 
@@ -360,6 +374,10 @@ class RewardWrapper(Wrapper):
         super().__init__(env)
         self._last_gate = None
         self.iteration = 0
+        self._sim_time = 0.0
+        self.env = env
+        self.ref_x, self.ref_y, self.ref_z, self.waypoints = _generate_ref_waipoints("config/getting_started.yaml")
+
 
     def reset(self, *args: Any, **kwargs: dict[str, Any]) -> np.ndarray:
         """Reset the environment.
@@ -376,7 +394,6 @@ class RewardWrapper(Wrapper):
         self.initial_obs = obs
         self.initial_info = info
         self.iteration = 0
-        self._generate_ref_waipoints(info)
 
         return obs, info
 
@@ -391,7 +408,6 @@ class RewardWrapper(Wrapper):
         """
         obs, reward, terminated, truncated, info = self.env.step(action)
         reward = self._compute_reward(obs, reward, terminated, truncated, info)
-        self.iteration += 1
         return obs, reward, terminated, truncated, info
 
     def _compute_reward(
@@ -412,97 +428,34 @@ class RewardWrapper(Wrapper):
         drone_x = obs[0]
         drone_y = obs[1]
         drone_z = obs[2]
-
-        drone_position = np.array([drone_x, drone_y, drone_z])
-        ref_position = np.array([self.ref_x[self.iteration], self.ref_y[self.iteration], self.ref_z[self.iteration]])
-        distance = np.linalg.norm(drone_position - ref_position)
-        rew = -distance
+        drone_roll = obs[3]
+        drone_pitch = obs[4]
+        drone_yaw = obs[5]
+        contrl_freq = 30
+        it = int(self.env.time * contrl_freq)
+        # if episode to long
+        if it >= len(self.ref_x):
+            rew = -10
+            print("Episode time: ", self.env.time)
+        else:
+            drone_position = np.array([drone_x, drone_y, drone_z])
+            ref_position = np.array([self.ref_x[it], self.ref_y[it], self.ref_z[it]])
+            p.addUserDebugPoints([[self.ref_x[it], self.ref_y[it], self.ref_z[it]]], pointSize=3, pointColorsRGB=[[0,0,1]])
+            distance = np.linalg.norm(drone_position - ref_position)
+            if distance <= 0.1:
+                rew = 10 / (distance+0.0001)
+            else:
+                rew = -50*distance
+        # Penalize for roll, pitch and yaw
+        if drone_roll > 0:
+            rew -= 5*drone_roll
+        if drone_pitch > 0:
+            rew -= 5*drone_pitch
+        #if drone_yaw > 0:
+        #    rew -= drone_yaw
+        
+        #print(f"Distance: {distance}, Penalty: {rew}")
 
         return rew + reward
 
-    def _generate_ref_waipoints(self, info: dict):
-        waypoints = []
-        waypoints.append([self.initial_obs[0], self.initial_obs[1], 0.3])
-        gates = self.initial_info["nominal_gates_pos_and_type"]
-        z_low = self.initial_info["gate_dimensions"]["low"]["height"]
-        z_high = self.initial_info["gate_dimensions"]["tall"]["height"]
-        waypoints.append([1, 0, z_low])
-        waypoints.append([gates[0][0] + 0.2, gates[0][1] + 0.1, z_low])
-        waypoints.append([gates[0][0] + 0.1, gates[0][1], z_low])
-        waypoints.append([gates[0][0] - 0.1, gates[0][1], z_low])
-        waypoints.append(
-            [
-                (gates[0][0] + gates[1][0]) / 2 - 0.7,
-                (gates[0][1] + gates[1][1]) / 2 - 0.3,
-                (z_low + z_high) / 2,
-            ]
-        )
-        waypoints.append(
-            [
-                (gates[0][0] + gates[1][0]) / 2 - 0.5,
-                (gates[0][1] + gates[1][1]) / 2 - 0.6,
-                (z_low + z_high) / 2,
-            ]
-        )
-        waypoints.append([gates[1][0] - 0.3, gates[1][1] - 0.2, z_high])
-        waypoints.append([gates[1][0] + 0.2, gates[1][1] + 0.2, z_high])
-        waypoints.append([gates[2][0], gates[2][1] - 0.4, z_low])
-        waypoints.append([gates[2][0], gates[2][1] + 0.2, z_low])
-        waypoints.append([gates[2][0], gates[2][1] + 0.2, z_high + 0.2])
-        waypoints.append([gates[3][0], gates[3][1] + 0.1, z_high])
-        waypoints.append([gates[3][0], gates[3][1] - 0.1, z_high + 0.1])
-        waypoints.append(
-            [
-                self.initial_info["x_reference"][0],
-                self.initial_info["x_reference"][2],
-                self.initial_info["x_reference"][4],
-            ]
-        )
-        waypoints.append(
-            [
-                self.initial_info["x_reference"][0],
-                self.initial_info["x_reference"][2] - 0.2,
-                self.initial_info["x_reference"][4],
-            ]
-        )
-        waypoints = np.array(waypoints)
-
-        tck, u = interpolate.splprep([waypoints[:, 0], waypoints[:, 1], waypoints[:, 2]], s=0.1)
-        self.waypoints = waypoints
-        duration = 12
-        t = np.linspace(0, 1, int(duration * self.initial_info["ctrl_freq"]))
-        self.ref_x, self.ref_y, self.ref_z = interpolate.splev(t, tck)
-
-        takeoff_duration = 2  # seconds
-        takeoff_steps = int(takeoff_duration * self.initial_info["ctrl_freq"])
-        takeoff_z = np.linspace(0.07, self.initial_obs[2], takeoff_steps)
-
-        self.ref_x = np.concatenate((np.full(takeoff_steps, self.initial_obs[0]), self.ref_x))
-        self.ref_y = np.concatenate((np.full(takeoff_steps, self.initial_obs[1]), self.ref_y))
-        self.ref_z = np.concatenate((takeoff_z, self.ref_z))
-
-        #plot reference trajectory in 3D
-        if False:
-            fig = plt.figure()
-            ax = fig.add_subplot(111, projection='3d')
-            ax.plot(self.ref_x, self.ref_y, self.ref_z)    
-            # Plot start and end point
-            ax.scatter(self.ref_x[0], self.ref_y[0], self.ref_z[0], c='green', label='Start')
-            ax.scatter(self.ref_x[-1], self.ref_y[-1], self.ref_z[-1], c='red', label='End')
-
-            # Plot the initial position
-            ax.scatter(self.initial_obs[0], self.initial_obs[1], 0.3, c='orange', label='Initial Position')
-
-            # Plot vertical lines for gates
-            for gate in gates:
-                x, y, z, _, _, _, _ = gate
-                ax.plot([x, x], [y, y], [0, 1], color='blue', label='Gate')
-
-            # Plot vertical lines for obstacles
-            #for obstacle in self.OBSTACLES:
-            #    x, y, z, _, _, _ = obstacle
-            #   ax.plot([x, x], [y, y], [0, 1], color='red', label='Obstacle')
-            ax.legend()
-            plt.show()
-
-        assert max(self.ref_z) < 2.5, "Drone must stay below the ceiling"
+    
