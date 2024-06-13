@@ -1,11 +1,16 @@
 from pathlib import Path
 from stable_baselines3 import PPO
 from train import create_race_env
-from train_utils import process_observation, save_observations
+from lsy_drone_racing.train_utils import process_observation, save_observations
 import datetime
 from stable_baselines3.common.vec_env import DummyVecEnv
 import os
 from mpl_toolkits.mplot3d import Axes3D
+from lsy_drone_racing.wrapper import RewardWrapper
+import lsy_drone_racing.train_utils as train_utils
+import pybullet as p
+
+
 
 
 def play_trained_model(model_path: str, config_path: str, gui: bool = False,episodes_path: str = "episodes/"):
@@ -17,6 +22,8 @@ def play_trained_model(model_path: str, config_path: str, gui: bool = False,epis
     # Set the model's environment
     #model.set_env(env)
     # Play the model in the environment
+    ref_x, ref_y, ref_z, waypoints = train_utils._generate_ref_waipoints(config_path)
+    print(ref_x.shape)
     episodes = 5
     for i in range(episodes):
         obs_list = []
@@ -26,6 +33,16 @@ def play_trained_model(model_path: str, config_path: str, gui: bool = False,epis
         done = False
         ret = 0.
         episode_length = 0
+        j = 0
+        
+        # Draw the trajectory
+        step = int(ref_x.shape[0]/50)
+        for i in range(step, ref_x.shape[0], step):
+            p.addUserDebugLine(
+                lineFromXYZ=[ref_x[i - step], ref_y[i - step], ref_z[i - step]],
+                lineToXYZ=[ref_x[i], ref_y[i], ref_z[i]],
+                lineColorRGB=[1, 0, 0]
+            )
         while not done:
             action, *_ = model.predict(x)
             action_list.append(action)
@@ -34,6 +51,8 @@ def play_trained_model(model_path: str, config_path: str, gui: bool = False,epis
             ret += r
             episode_length += 1
             obs_list.append(process_observation(x, False))
+            j += 1
+            #p.addUserDebugPoints([[ref_x[j],ref_y[j], ref_z[j]]], pointSize=3, pointColorsRGB=[[1,0,0]])
         # Save the observations
         print(f"Episode {i}: Return: {ret}, Episode Length: {episode_length}")
         save_path = episodes_path + "episodes"
@@ -66,7 +85,7 @@ def play_trained_model(model_path: str, config_path: str, gui: bool = False,epis
     return ret, episode_length
 
 if __name__ == '__main__':
-    model_path = "trained_models/2024-06-10_12-17-02/model_480000_steps.zip"
+    model_path = "trained_models/2024-06-12_21-37-35/model_12320000_steps.zip"
     episodes_path = os.path.dirname(model_path) + "/"
     config_path = "config/getting_started.yaml"
     ret, episode_length = play_trained_model(model_path, config_path, 100, episodes_path)
