@@ -27,7 +27,7 @@ from lsy_drone_racing.utils import load_config
 from lsy_drone_racing.wrapper import DroneRacingWrapper, RewardWrapper, MultiProcessingWrapper
 import datetime
 
-from train_utils import save_observations, process_observation
+#from lsy_drone_racing.train_utils import save_observations, process_observation
 import multiprocessing
 
 logger = logging.getLogger(__name__)
@@ -93,7 +93,7 @@ def main(config: str = "config/getting_started.yaml", gui: bool = False):
 
     env = create_race_env(config_path, gui=gui, multiprocess=True)
 
-    epochs = 1000
+    epochs = 100000 
     n_steps = 2048
 
     checkpoint_callback = CheckpointCallback(save_freq=10000, save_path=save_path, name_prefix="model")
@@ -110,7 +110,7 @@ def main(config: str = "config/getting_started.yaml", gui: bool = False):
                 learning_rate=3e-5,
                 n_steps=n_steps,
                 tensorboard_log=log_path,
-                ent_coef=0.01,              # Entropy coefficient to encourage exploration
+                #ent_coef=0.001,              # Entropy coefficient to encourage exploration
     )      
 
     model.learn(total_timesteps=epochs * n_steps, 

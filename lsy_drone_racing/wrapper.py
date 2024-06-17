@@ -443,7 +443,7 @@ class RewardWrapper(Wrapper):
             p.addUserDebugPoints([[self.ref_x[it], self.ref_y[it], self.ref_z[it]]], pointSize=3, pointColorsRGB=[[0,0,1]])
             distance = np.linalg.norm(drone_position - ref_position)
             if distance <= 0.1:
-                rew = 10 / (distance+0.0001)
+                rew = 50
             else:
                 rew = -50*distance
         # Penalize for roll, pitch and yaw
@@ -451,8 +451,8 @@ class RewardWrapper(Wrapper):
             rew -= 5*drone_roll
         if drone_pitch > 0:
             rew -= 5*drone_pitch
-        #if drone_yaw > 0:
-        #    rew -= drone_yaw
+        if drone_yaw > 0:
+            rew -= 0.5*drone_yaw
         
         #print(f"Distance: {distance}, Penalty: {rew}")
 
