@@ -199,7 +199,7 @@ def get_initial_observation(configs):
         return init_gates, init_obstacles, init_drone
 
 
-def _generate_ref_waipoints(config_path = "config/getting_started.yaml"):
+def _generate_ref_waipoints(config_path = "config/Level1.yaml"):
 
         configs = load_configs(config_path)
         init_gates, init_obstacles, init_drone = get_initial_observation(configs)
@@ -252,7 +252,7 @@ def _generate_ref_waipoints(config_path = "config/getting_started.yaml"):
         waypoints = np.array(waypoints)
 
         tck, u = interpolate.splprep([waypoints[:, 0], waypoints[:, 1], waypoints[:, 2]], s=0.1)
-        duration = 12
+        duration = 10
         t = np.linspace(0, 1, int(duration * configs["quadrotor_config"]["ctrl_freq"]))
         ref_x, ref_y, ref_z = interpolate.splev(t, tck)
 

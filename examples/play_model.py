@@ -24,7 +24,7 @@ def play_trained_model(model_path: str, config_path: str, gui: bool = False,epis
     # Play the model in the environment
     ref_x, ref_y, ref_z, waypoints = train_utils._generate_ref_waipoints(config_path)
     print(ref_x.shape)
-    episodes = 5
+    episodes = 10
     for i in range(episodes):
         obs_list = []
         action_list = []
@@ -58,7 +58,7 @@ def play_trained_model(model_path: str, config_path: str, gui: bool = False,epis
         save_path = episodes_path + "episodes"
         save_path = Path(save_path)
         save_path.mkdir(parents=True, exist_ok=True)
-        save_observations(obs_list, save_path, i)
+        save_observations(obs_list, save_path, j)
 
         # plot actions in 3D
         import matplotlib.pyplot as plt
@@ -85,8 +85,8 @@ def play_trained_model(model_path: str, config_path: str, gui: bool = False,epis
     return ret, episode_length
 
 if __name__ == '__main__':
-    model_path = "trained_models/2024-06-12_21-37-35/model_12320000_steps.zip"
+    model_path = "trained_models/2024-06-19_21-21-24/best_model.zip"
     episodes_path = os.path.dirname(model_path) + "/"
-    config_path = "config/getting_started.yaml"
+    config_path = "config/level3.yaml"
     ret, episode_length = play_trained_model(model_path, config_path, 100, episodes_path)
     print(f"Return: {ret}, Episode length: {episode_length}")

@@ -31,7 +31,9 @@ import sys
 sys.path.insert(1,'./examples')
 from pathlib import Path
 from train import create_race_env
-from train_utils import process_observation, save_observations
+from lsy_drone_racing.train_utils import process_observation, save_observations
+from lsy_drone_racing.wrapper import DroneRacingObservationWrapper
+
 
 import numpy as np
 
@@ -93,14 +95,14 @@ class Controller(BaseController):
         # REPLACE THIS (START) ##
         #########################
 
-        config = Path("config/getting_started.yaml")
+        config = Path("config/level3.yaml")
         # Overwrite config options
 
-        self.env = create_race_env(config_path=config, gui=False)
-        check_env(self.env)
+        self.env = create_race_env(config_path=config, gui=False, multiprocess=False)
+        #check_env(self.env)
 
         #load respective RL-model
-        model_path = "trained_models/2024-06-03_21-54-08/model_2520000_steps.zip"
+        model_path = "trained_models/2024-06-19_21-21-24/best_model.zip"
         self.model = PPO.load(model_path)
         self.model.set_env(self.env)
 

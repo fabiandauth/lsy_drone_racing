@@ -27,12 +27,28 @@ Tips:
 
 from __future__ import annotations  # Python 3.10 type hints
 
-import numpy as np
+import sys
+sys.path.insert(1,'./examples')
+from pathlib import Path
+from train import create_race_env
+from lsy_drone_racing.train_utils import process_observation, save_observations
+from lsy_drone_racing.wrapper import DroneRacingObservationWrapper
 from scipy import interpolate
+
+
+import numpy as np
+
 
 from lsy_drone_racing.command import Command
 from lsy_drone_racing.controller import BaseController
 from lsy_drone_racing.utils import draw_trajectory
+
+from stable_baselines3 import PPO
+from stable_baselines3.common.vec_env import DummyVecEnv
+from sb3_contrib import RecurrentPPO
+from stable_baselines3.common.env_checker import check_env
+from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, EvalCallback
+
 import pybullet as p
 
 class Controller(BaseController):
@@ -131,7 +147,7 @@ class Controller(BaseController):
 
         tck, u = interpolate.splprep([waypoints[:, 0], waypoints[:, 1], waypoints[:, 2]], s=0.1)
         self.waypoints = waypoints
-        duration = 12
+        duration = 10
         t = np.linspace(0, 1, int(duration * self.CTRL_FREQ))
         self.ref_x, self.ref_y, self.ref_z = interpolate.splev(t, tck)
         assert max(self.ref_z) < 2.5, "Drone must stay below the ceiling"
@@ -143,6 +159,23 @@ class Controller(BaseController):
         self._take_off = False
         self._setpoint_land = False
         self._land = False
+
+
+        #########################
+
+        config = Path("config/level1.yaml")
+        # Overwrite config options
+
+        self.env = create_race_env(config_path=config, gui=False, multiprocess=False)
+        #check_env(self.env)
+
+        #load respective RL-model
+        model_path = "trained_models/2024-06-19_21-21-24/best_model.zip"
+        self.model = PPO.load(model_path)
+        self.model.set_env(self.env)
+
+        self.x = self.env.reset()
+
         #########################
         # REPLACE THIS (END) ####
         #########################
@@ -179,6 +212,20 @@ class Controller(BaseController):
         #########################
         # REPLACE THIS (START) ##
         #########################
+        
+        action, states = self.model.predict(obs)
+        action = action*0.1
+
+        target_pos = [float(i) for i in (action[0:3])]
+        target_vel = np.zeros(3)
+        target_acc = np.zeros(3)
+        target_yaw = float(action[3])
+        target_rpy_rates = np.zeros(3)
+        args = [target_pos, target_vel, target_acc, target_yaw, target_rpy_rates, ep_time]
+
+        print('x:', action[0], ' y:', action[1], 'z: ', action[2], 'yaw:', target_yaw)
+
+        #########################
 
         # Handcrafted solution for getting_stated scenario.
 
@@ -189,8 +236,10 @@ class Controller(BaseController):
         else:
             step = iteration - 2 * self.CTRL_FREQ  # Account for 2s delay due to takeoff
             if ep_time - 2 > 0 and step < len(self.ref_x):
-                p.addUserDebugPoints([[self.ref_x[step], self.ref_y[step], self.ref_z[step]]], pointSize=3, pointColorsRGB=[[0,0,1]])
-                target_pos = np.array([self.ref_x[step], self.ref_y[step], self.ref_z[step]])
+                
+
+                p.addUserDebugPoints([[self.ref_x[step]+action[0] , self.ref_y[step]+action[1], self.ref_z[step]+action[2] ]], pointSize=3, pointColorsRGB=[[0,0,1]])
+                target_pos = np.array([self.ref_x[step], self.ref_y[step], self.ref_z[step]]) + np.array(action[0] + action[1]+ action[2])
                 target_vel = np.zeros(3)
                 target_acc = np.zeros(3)
                 target_yaw = 0.0

@@ -93,5 +93,5 @@ def plot_trajectories(folder_path):
 
 
 if __name__ == '__main__':
-    folder_path = 'trained_models/2024-06-12_06-26-51/episodes/'
+    folder_path = 'trained_models/2024-06-19_06-35-41/episodes'
     plot_trajectories(folder_path)

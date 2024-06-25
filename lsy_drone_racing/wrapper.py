@@ -144,7 +144,7 @@ class DroneRacingWrapper(Wrapper):
         self._f_rotors[:] = 0.0
         obs, info = self.env.reset()
         # Store obstacle height for observation expansion during env steps.
-        obs = self.observation_transform(obs, info).astype(np.float32)
+        obs = self.observation_transform(self, obs, info).astype(np.float32)
         self._drone_pose = obs[[0, 1, 2, 5]]
         return obs, info
 
@@ -193,7 +193,7 @@ class DroneRacingWrapper(Wrapper):
         # Increment the sim time after the step if we are not yet done.
         if not terminated and not truncated:
             self._sim_time += self.env.ctrl_dt
-        obs = self.observation_transform(obs, info).astype(np.float32)
+        obs = self.observation_transform(self, obs, info).astype(np.float32)
         self._drone_pose = obs[[0, 1, 2, 5]]
         if obs not in self.observation_space:
             terminated = True
@@ -210,9 +210,15 @@ class DroneRacingWrapper(Wrapper):
         Returns:
             The transformed action.
         """
-        #action = self._drone_pose + (action * self.action_scale)
-        action = (action * self.action_scale)
-        p.addUserDebugPoints([[action[0], action[1], action[2]]], pointSize=3, pointColorsRGB=[[1,0,0]])
+        it = int(self._sim_time * 30)
+        if it >= len(self.ref_x):
+            it = len(self.ref_x) - 1
+        ref_position = np.array([self.ref_x[it], self.ref_y[it], self.ref_z[it], 0])
+
+        scaled_action = action * 0.1  # Scale the action by a factor of 0.5
+        action = ref_position + (scaled_action * self.action_scale)
+        #action[:3] += ref_position[:3]
+        p.addUserDebugPoints([[action[0], action[1], action[2]]], pointSize=5, pointColorsRGB=[[1,0,0]])
         action[3] = map2pi(action[3])  # Ensure yaw is in [-pi, pi]
         return action
 
@@ -228,7 +234,7 @@ class DroneRacingWrapper(Wrapper):
         assert self.pyb_client_id != -1, "PyBullet not initialized with active GUI"
 
     @staticmethod
-    def observation_transform(obs: np.ndarray, info: dict[str, Any]) -> np.ndarray:
+    def observation_transform(self,obs: np.ndarray, info: dict[str, Any]) -> np.ndarray:
         """Transform the observation to include additional information.
 
         Args:
@@ -308,7 +314,7 @@ class DroneRacingObservationWrapper:
             The transformed observation and the info dict.
         """
         obs, info = self.env.reset(*args, **kwargs)
-        obs = DroneRacingWrapper.observation_transform(obs, info)
+        obs = DroneRacingWrapper.observation_transform(self, obs, info)
         return obs, info
 
     def step(
@@ -324,7 +330,7 @@ class DroneRacingObservationWrapper:
             The transformed observation and the info dict.
         """
         obs, reward, done, info, action = self.env.step(*args, **kwargs)
-        obs = DroneRacingWrapper.observation_transform(obs, info)
+        obs = DroneRacingWrapper.observation_transform(self, obs, info)
         return obs, reward, done, info, action
 
 
@@ -376,7 +382,7 @@ class RewardWrapper(Wrapper):
         self.iteration = 0
         self._sim_time = 0.0
         self.env = env
-        self.ref_x, self.ref_y, self.ref_z, self.waypoints = _generate_ref_waipoints("config/getting_started.yaml")
+        self.ref_x, self.ref_y, self.ref_z, self.waypoints = _generate_ref_waipoints("config/level3.yaml")
 
 
     def reset(self, *args: Any, **kwargs: dict[str, Any]) -> np.ndarray:
@@ -434,8 +440,9 @@ class RewardWrapper(Wrapper):
         contrl_freq = 30
         it = int(self.env.time * contrl_freq)
         # if episode to long
+        rew = 0
         if it >= len(self.ref_x):
-            rew = -10
+            rew -= 10
             print("Episode time: ", self.env.time)
         else:
             drone_position = np.array([drone_x, drone_y, drone_z])
@@ -443,16 +450,16 @@ class RewardWrapper(Wrapper):
             p.addUserDebugPoints([[self.ref_x[it], self.ref_y[it], self.ref_z[it]]], pointSize=3, pointColorsRGB=[[0,0,1]])
             distance = np.linalg.norm(drone_position - ref_position)
             if distance <= 0.1:
-                rew = 50
+                rew += 1
             else:
-                rew = -50*distance
+                rew -= -100*distance
         # Penalize for roll, pitch and yaw
-        if drone_roll > 0:
-            rew -= 5*drone_roll
-        if drone_pitch > 0:
-            rew -= 5*drone_pitch
-        if drone_yaw > 0:
-            rew -= 0.5*drone_yaw
+        #if drone_roll > 0:
+        #    rew -= 5*drone_roll
+        #if drone_pitch > 0:
+        #    rew -= 5*drone_pitch
+        #if drone_yaw > 0:
+        #    rew -= 0.5*drone_yaw
         
         #print(f"Distance: {distance}, Penalty: {rew}")
 

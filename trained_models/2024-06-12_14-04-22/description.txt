@@ -1,0 +1,8 @@
+penalty for: 
+    -distance to reference trajectory
+    -roll and pitch
+    -if episode ist too logging
+
+reward for:
+    -not crashing
+    -quadrotor.py rewards

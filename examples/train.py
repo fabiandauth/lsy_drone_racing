@@ -33,7 +33,7 @@ import multiprocessing
 logger = logging.getLogger(__name__)
 
 
-def create_race_env(config_path: Path, gui: bool = False, multiprocess = True) -> DroneRacingWrapper:
+def create_race_env(config_path: Path, gui: bool = False, multiprocess = False) -> DroneRacingWrapper:
     """
     Creates a drone racing environment.
 
@@ -65,7 +65,7 @@ def create_race_env(config_path: Path, gui: bool = False, multiprocess = True) -
         env = RewardWrapper(env)
         env = MultiProcessingWrapper(env)
         return env
-    if multiprocess is True:
+    if False:
         num_cores = multiprocessing.cpu_count()
         print("Number of CPU cores:", num_cores)
         env = make_vec_env(lambda: create_env(), n_envs=num_cores, vec_env_cls=SubprocVecEnv)
@@ -76,7 +76,7 @@ def create_race_env(config_path: Path, gui: bool = False, multiprocess = True) -
     return env
 
 
-def main(config: str = "config/getting_started.yaml", gui: bool = False):
+def main(config: str = "config/level3.yaml", gui: bool = False):
     """Create the environment, check its compatibility with sb3, and run a PPO agent."""
 
     # Create a directory to save the trained model
@@ -110,7 +110,7 @@ def main(config: str = "config/getting_started.yaml", gui: bool = False):
                 learning_rate=3e-5,
                 n_steps=n_steps,
                 tensorboard_log=log_path,
-                #ent_coef=0.001,              # Entropy coefficient to encourage exploration
+                ent_coef=0.001,              # Entropy coefficient to encourage exploration
     )      
 
     model.learn(total_timesteps=epochs * n_steps, 
