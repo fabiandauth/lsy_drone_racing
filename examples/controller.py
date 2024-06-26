@@ -170,7 +170,9 @@ class Controller(BaseController):
         #check_env(self.env)
 
         #load respective RL-model
-        model_path = "trained_models/2024-06-19_21-21-24/best_model.zip"
+       #model_path = "trained_models/2024-06-19_21-21-24/best_model.zip"
+        model_path = "trained_models/2024-06-25_20-25-46/model_8050000_steps.zip"
+
         self.model = PPO.load(model_path)
         self.model.set_env(self.env)
 

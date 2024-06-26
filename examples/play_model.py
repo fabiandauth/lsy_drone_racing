@@ -85,7 +85,7 @@ def play_trained_model(model_path: str, config_path: str, gui: bool = False,epis
     return ret, episode_length
 
 if __name__ == '__main__':
-    model_path = "trained_models/2024-06-19_21-21-24/best_model.zip"
+    model_path = "trained_models/2024-06-25_20-25-46/model_8050000_steps.zip"
     episodes_path = os.path.dirname(model_path) + "/"
     config_path = "config/level3.yaml"
     ret, episode_length = play_trained_model(model_path, config_path, 100, episodes_path)
