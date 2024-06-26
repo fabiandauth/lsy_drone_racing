@@ -45,7 +45,7 @@ from lsy_drone_racing.utils import draw_trajectory
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
-from sb3_contrib import RecurrentPPO
+#from sb3_contrib import RecurrentPPO
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, EvalCallback
 
