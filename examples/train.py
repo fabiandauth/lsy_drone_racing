@@ -15,7 +15,7 @@ from pathlib import Path
 import fire
 from safe_control_gym.utils.registration import make
 from stable_baselines3 import PPO
-from sb3_contrib import RecurrentPPO
+#from sb3_contrib import RecurrentPPO
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, EvalCallback
 
