@@ -406,7 +406,6 @@ class Controller(BaseController):
         z_low = self.initial_info["gate_dimensions"]["low"]["height"]
         z_high = self.initial_info["gate_dimensions"]["tall"]["height"]
 
-
         waypoints = []
         waypoints.append(pos)
         #waypoints.append([1, 0, z_low])
