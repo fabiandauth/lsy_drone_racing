@@ -29,6 +29,7 @@ from __future__ import annotations  # Python 3.10 type hints
 
 import numpy as np
 from scipy import interpolate
+from lsy_drone_racing.routingModule import initialize_routing_model
 
 
 import subprocess as subway
@@ -87,6 +88,7 @@ class Controller(BaseController):
         self.initial_info = initial_info
 
         self.start = initial_obs[0:4]
+        self.goal = [0, -1.5, 0.5]
         self.gates =list([initial_obs[12:12+4], initial_obs[16:16+4], initial_obs[20:20+4], initial_obs[24:24+4]])
         self.obstacles = list([initial_obs[32:32+3], initial_obs[35:35+3], initial_obs[38:38+3], initial_obs[41:41+3]])
 
@@ -95,7 +97,7 @@ class Controller(BaseController):
         self.obstacles_in_range = initial_obs[44:44+4]
         self.updated_gates = [0, 0, 0, 0]
         self.updated_obstacles = [0, 0, 0, 0]
-        self.passed_gates = [0, 0, 0, 0]
+        self.passed_gates = [1, 1, 0, 0]
         self.trajectory_planner_active = False
         self.step = 0
 
@@ -157,19 +159,15 @@ class Controller(BaseController):
         #########################
 
         # Handcrafted solution for getting_stated scenario.
+        #print(obs)
 
         pos = obs[0:3]
         self._check_if_gate_passed(pos)
 
         if self._update_obstacle_parameter(obs) or self._update_gate_parameter(obs):
-            self.trajectory_planner_active = True
-            gates_array, obstacles_array = self._convert_to_routing_format(np.array(self.gates), np.array(self.obstacles))
-            print(self.gates)
-            print(self.obstacles)
-            np.savez('env_info.npz', gate_list=gates_array, obstacles=obstacles_array, start=pos)
-            self.hover_position = pos
-            ### start trajectory planner here ###
-            self.trajectory_planning_process = subway.Popen(['python', 'examples/gridLessRouting.py', 'env_info.npz'])
+            print(obs)
+            if self.trajectory_planner_active == False:
+                self._start_trajectory_planner(pos)
 
         if self.trajectory_planner_active == True:
             result = self.trajectory_planning_process.poll()
@@ -177,10 +175,7 @@ class Controller(BaseController):
                 self.trajectory_planner_active = False
                 # calculate new waypoints
                 waypoints = np.loadtxt("optimal_waypoints.txt").transpose()
-                #tck, u = interpolate.splprep([waypoints[:, 0], waypoints[:, 1], waypoints[:, 2]],  s=0.1)
-                #self.waypoints = waypoints
-                #duration = 10
-                #t = np.linspace(0, 1, int(duration * self.CTRL_FREQ))
+
                 # Separate the x, y, z coordinates
                 x = waypoints[:, 0]
                 y = waypoints[:, 1]
@@ -192,7 +187,6 @@ class Controller(BaseController):
 
                 # Normalize the path lengths to range from 0 to 1
                 u = path_lengths / path_lengths[-1]
-                print(u)
                 i = 0
                 while i < len(u)-1:
                     if u[i+1] <= u[i]:
@@ -214,7 +208,7 @@ class Controller(BaseController):
                 self.waypoints = waypoints
 
                 # Generate the time vector
-                duration = 10
+                duration = 15
                 t = np.linspace(0, 1, int(duration * self.CTRL_FREQ))
 
                 # Interpolate to get the interpolated path
@@ -224,6 +218,11 @@ class Controller(BaseController):
                 self.ref_x, self.ref_y, self.ref_z = x_interpolated, y_interpolated, z_interpolated
                 self.step = iteration
                 draw_trajectory(self.initial_info, self.waypoints, self.ref_x, self.ref_y, self.ref_z)
+
+        step = iteration - self.step
+        if self.trajectory_planner_active == False:
+            if  step >= len(self.ref_x) and not self._setpoint_land and self.passed_gates != [1,1,1,1]:
+                self._start_trajectory_planner(pos)
 
         if self.trajectory_planner_active == True:
             #hover as long as new solution is calculated
@@ -235,8 +234,6 @@ class Controller(BaseController):
             command_type = Command.FULLSTATE
             args = [target_pos, target_vel, target_acc, target_yaw, target_rpy_rates, ep_time]
         else:
-            step = iteration - self.step
-            print(step)
             if ep_time > 0 and step < len(self.ref_x):
                 #last_set_pos = [self.ref_x[step-1], self.ref_y[step-1], self.ref_z[step-1]]
                 target_pos = np.array([self.ref_x[step], self.ref_y[step], self.ref_z[step]])
@@ -345,7 +342,7 @@ class Controller(BaseController):
         update = False
         for i in range(12, 25, 4):
             if not np.array_equal(obs[i:i+4], self.gates[list_index]) and self.updated_gates[list_index] == 0:
-                self.gates[list_index] = obs[i:i + 4]
+                self.gates[list_index] = obs[i : i + 4]
                 self.updated_gates[list_index] = 1
                 update = True
             list_index += 1
@@ -356,7 +353,7 @@ class Controller(BaseController):
         update = False
         for i in range(32, 42, 3):
             if not np.array_equal(obs[i:i + 3], self.obstacles[list_index]) and self.updated_obstacles[list_index] == 0:
-                self.obstacles[list_index] = obs[i:i + 3]
+                self.obstacles[list_index] = obs[i : i + 3]
                 self.updated_obstacles[list_index] = 1
                 update = True
             list_index += 1
@@ -364,14 +361,45 @@ class Controller(BaseController):
 
     def _check_if_gate_passed(self, pos):
         for gate in range(0, len(self.gates[0])):
-            if np.allclose(pos, self.gates[gate][0:3], atol=0.15):
+            if np.allclose(pos, self.gates[gate][0:3], atol=0.1):
                 self.passed_gates[gate] = 1
 
     def _convert_to_routing_format(self, gates, obstacles):
-        for i in range(len(self.passed_gates)):
-            if self.passed_gates[i] == 1:
-                gates = np.delete(gates, i, axis=0)
+        #for i in range(len(self.passed_gates)):
+            #if self.passed_gates[i] == 1:
+                #gates = np.delete(gates, i, axis=0)
         obstacles = np.append(obstacles, np.zeros((obstacles.shape[0], 3)), axis=1)
         gates = np.append(gates, np.zeros((gates.shape[0], 1)), axis=1)
         gates = np.insert(gates,[3], np.zeros((gates.shape[0], 2)), axis=1)
         return gates, obstacles
+
+    def _gen_obstacle_sizes(self, gates, obstacles):
+        pass
+    def _find_next_gate(self):
+        for i in range(len(self.passed_gates)):
+            if self.passed_gates[i] == 0:
+                return i
+        print("all gates passed")
+        return None
+
+    def _start_trajectory_planner(self, pos):
+        print("Starting new path calculation")
+        self.trajectory_planner_active = True
+        gates_array, obstacles_array = self._convert_to_routing_format(np.array(self.gates), np.array(self.obstacles))
+        next_gate_index = self._find_next_gate()
+        if self.passed_gates == [1, 1, 1, 1]:
+            goal = self.goal
+        elif self.passed_gates == [1, 1, 1, 0]:
+            goal = self.goal
+        else:
+            goal = gates_array[next_gate_index + 1, 0:3]
+        if next_gate_index < 3:
+            gates_array = gates_array[next_gate_index:next_gate_index + 2, :]
+        else:
+            gates_array = gates_array[next_gate_index:-1, :]
+
+        #np.savez('env_info.npz', gate_list=gates_array, obstacles=obstacles_array, start=pos, goal=goal)
+        self.hover_position = pos
+        ### start trajectory planner here ###
+        self.trajectory_planning_process = subway.Popen(['python', 'examples/gridLessRouting.py', 'env_info.npz'])
+        return initialize_routing_model(gate_list=gates_array, obstacles=obstacles_array, start=pos, goal=goal)

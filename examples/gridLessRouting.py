@@ -40,45 +40,68 @@ if filepath == None:
         [-0.5, 0, 0.5, 0, 0, 0],
         [0, 1.0, 0.5, 0, 0, 0]
     ]
+    goal = [0, -1.5, 0.5]
 else:
     data = np.load(filepath)
     gate_list = data['gate_list']
     obstacles = data['obstacles']
     start = data['start']
+    goal = data['goal']
 
 # additional fixed info
-goal = [0, -1.5, 0.5]
 obstacle_height = 1.05
 gate_frame = 0.45
 half_length = 0.1875
 upper_constraints = [3, 3, 2]
 lower_constraints = [-3, -3, 0]
 
+print(gate_list)
+
 ########################################################################################################################
 # Environment Pre Processing
 ########################################################################################################################
 
+def resolve_collision(obstacles, gate_pos, rot, direction):
+    blocked = [False, False, False]
+    allowed_rot = [0, np.pi/4, -np.pi/4]
+
+    for offset in allowed_rot:
+
+        delta_x_ = np.cos(rot + np.pi / 2 + offset)
+        delta_y_ = np.sin(rot + np.pi / 2 + offset)
+
+        goal_pos = [gate_pos[0] + direction * delta_x_ * 0.2, gate_pos[1] + direction * delta_y_ * 0.2, gate_pos[2] + 0.1]
+        for obstacle in obstacles:
+            for dim in range(0, 3):
+                if obstacle[dim] - 0.3 < goal_pos[dim] < obstacle[dim] + 0.3:
+                    blocked[dim] = True
+            if blocked != [True, True, True]:
+                gates.append(goal_pos)
+                return
+    print("Error no valid position found")
+
 
 gates = []
 gate_frames = []
- #add gate normal
+# Add gate frames as obstacles and append points before gate and after gate as waypoints that have to be passed
 for i in range(len(gate_list)):
     rot = gate_list[i][5]
     delta_x = np.cos(rot)
     delta_y = np.sin(rot)
-
     delta_x_ = np.cos(rot + np.pi/2)
     delta_y_ = np.sin(rot + np.pi/2)
-    gates.append([gate_list[i][0] -delta_x_ * 0.1, gate_list[i][1] - delta_y_ * 0.1, gate_list[i][2], 0, 0, 0, 0])
+    resolve_collision(obstacles, gate_list[i], rot, -1)
     gates.append(gate_list[i])
-    gates.append([gate_list[i][0] + delta_x_ * 0.1, gate_list[i][1] + delta_y_ * 0.1, gate_list[i][2], 0, 0, 0, 0])
-    gate_frames.append([gate_list[i][0] - delta_x * 0.25, gate_list[i][1] - delta_y * 0.3, gate_list[i][2], 0, 0, 0])
-    gate_frames.append([gate_list[i][0] + delta_x * 0.3, gate_list[i][1] + delta_y * 0.3, gate_list[i][2], 0, 0, 0])
-    gate_frames.append([gate_list[i][0], gate_list[i][1], gate_list[i][2] + 0.3, 0, 0, 1])
-    gate_frames.append([gate_list[i][0], gate_list[i][1], gate_list[i][2] - 0.3, 0, 0, 1])
-steps = [30, 40, 50, 80, 90, 100, 130, 140, 150, 180, 190, 200]
-for i in range(len(steps)):
-    steps[i] = 2*steps[i]
+    resolve_collision(obstacles, gate_list[i], rot, 1)
+    gate_frames.append([gate_list[i][0] - delta_x * 0.225, gate_list[i][1] - delta_y * 0.225, gate_list[i][2], 0, 0, 0])
+    gate_frames.append([gate_list[i][0] + delta_x * 0.225, gate_list[i][1] + delta_y * 0.225, gate_list[i][2], 0, 0, 0])
+    gate_frames.append([gate_list[i][0], gate_list[i][1], gate_list[i][2] + 0.225, 0, 0, 1])
+    gate_frames.append([gate_list[i][0], gate_list[i][1], gate_list[i][2] - 0.225, 0, 0, 1])
+
+steps = []
+for i in range(len(gate_list)):
+    step_points = [(i + 1) * 100 - 10, (i+1) * 100, (i+1) * 100 + 10]
+    steps = steps + step_points
 
 obstacles = list(obstacles) + list(gate_frames)
 
@@ -90,8 +113,8 @@ model = pyo.ConcreteModel()
 
 model.obstacles = len(obstacles)
 model.gates = len(gates)
-model.Step = 450
-model.M = 1000
+model.Step = steps[len(steps)-1] + 50
+model.M = 10000
 model.dim = 3
 
 model.obstacle_range = pyo.RangeSet(0,model.obstacles-1)
@@ -100,8 +123,8 @@ model.gate_range = pyo.RangeSet(0, model.gates-1)
 model.n_steps = pyo.RangeSet(0, model.Step-1)
 model.dim_range = pyo.RangeSet(0, model.dim-1)
 
-model.obstacle_width = [0.1, 0.1, 0.8]
-model.obstacle_top = [0.3, 0.3, 0.1]
+model.obstacle_width = [0.12, 0.12, 0.65]
+model.obstacle_top = [0.25, 0.25, 0.1]
 
 
 model.x = pyo.Var(model.dim_range, model.n_steps, within=pyo.Reals, bounds=(lower_constraints[0],upper_constraints[0]))
@@ -109,7 +132,7 @@ model.x = pyo.Var(model.dim_range, model.n_steps, within=pyo.Reals, bounds=(lowe
 model.bobject = pyo.Var(model.dim_range, model.obstacle_range, pyo.RangeSet(0,4), model.n_steps, within=pyo.Binary)
 #model.bgate = pyo.Var(model.dim_range, model.gate_range, model.n_steps, within=pyo.Binary)
 
-model.length = pyo.Var(model.n_steps, within=pyo.PositiveReals)
+model.length = pyo.Var( model.n_steps, within=pyo.PositiveReals)
 
 if ENFORCE_DISTANCE_FROM_OBSTACLES == True:
     model.obj_distance = pyo.Var(model.obstacle_range, model.dim_range, model.n_steps, within=pyo.PositiveReals)
@@ -210,11 +233,6 @@ else:
     # finds ways through the gates in fixed order and at fixed step
     def fly_through_gates_easy(model, dim, gate):
         return model.x[dim, steps[gate]] == gates[gate][dim]
-    # model.pass_gates_1 = pyo.Constraint(model.gate_range, model.n_steps, model.dim_range, rule=fly_through_gates_1)
-    # model.pass_gates_2 = pyo.Constraint(model.gate_range, model.n_steps, model.dim_range, rule=fly_through_gates_2)
-    # model.pass_gates_3 = pyo.Constraint(model.gate_range, rule=fly_through_gates_3)
-    # model.pass_gates_4 = pyo.Constraint(model.gate_range, model.n_steps,  rule=fly_through_gates_4)
-    # model.pass_gates_5 = pyo.Constraint(model.gate_range, model.n_steps,  rule=fly_through_gates_5)
     model.pass_gates_easy = pyo.Constraint(model.dim_range, model.gate_range, rule=fly_through_gates_easy)
 
 
@@ -237,13 +255,13 @@ def length_rule_5(model, step):
     if  step == model.Step-1:
         return pyo.Constraint.Skip
     else:
-        return model.length[step]**2 >= (model.x[0, step+1] - model.x[0,step])**2 + (model.x[1, step+1] - model.x[1,step])**2 + (model.x[0, step+1] - model.x[0,step])**2
+        return model.length[step] >= (model.x[0, step+1] - model.x[0,step])**2 + (model.x[1, step+1] - model.x[1,step])**2 + (model.x[0, step+1] - model.x[0,step])**2
 
 def length_rule_3(model, step):
-    return  model.length[step] >= 0.001
+    return  model.length[step] >= 0.00001
 
 def length_rule_4(model, step):
-    return  model.length[step] <= 0.1
+    return  model.length[step] <= 0.3
 
 def objective_rule(model):
     sum = 0
@@ -270,7 +288,7 @@ model.avoid_obstacle_5 = pyo.Constraint(model.obstacle_range, model.n_steps, rul
 model.length_1 = pyo.Constraint(model.dim_range, model.n_steps, rule=length_rule_1)
 model.length_2 = pyo.Constraint(model.dim_range, model.n_steps, rule=length_rule_2)
 model.length_3 = pyo.Constraint(model.n_steps, rule=length_rule_3)
-model.length_4= pyo.Constraint(model.n_steps, rule=length_rule_4)
+model.length_4 = pyo.Constraint(model.n_steps, rule=length_rule_4)
 #model.length_5 = pyo.Constraint(model.n_steps, rule=length_rule_5)
 
 
@@ -278,15 +296,15 @@ model.objective = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 
 
 optimizer = pyo.SolverFactory('gurobi')
-optimizer.options['SolutionLimit'] = 5
+optimizer.options['SolutionLimit'] = 10
 optimizer.options['TimeLimit'] = 60 * 60
 
 print("Calling Gurobi Optimizer to solve optimization problem...\n")
-result = optimizer.solve(model)# tee=True)
-print(result)
+result = optimizer.solve(model, tee=True)
+#print(result)
 
 
-waypoints = np.zeros((3,model.Step))
+waypoints = np.zeros((3, model.Step))
 for i in range(0, model.Step):
     for dim in range(0, model.dim):
         waypoints[dim, i] = pyo.value(model.x[dim, i])
