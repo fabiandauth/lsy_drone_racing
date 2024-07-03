@@ -312,7 +312,7 @@ class Controller(BaseController):
         for i in range(len(self.passed_gates)):
             if self.passed_gates[i] == 0:
                 return i
-        print("all gates passed")
+        #print("all gates passed")
         return None
 
     def _check_if_gate_passed(self, pos):
@@ -365,7 +365,7 @@ class Controller(BaseController):
                             blocked[dim] = True
                 if blocked != [True, True]:
                     return goal_pos
-        print("Error no valid position found")
+        #print("Error no valid position found")
         return None
 
     def _recalc_trajectory(self, waypoints, iteration):
@@ -379,7 +379,8 @@ class Controller(BaseController):
 
         index, obstacle = self._check_collision(self.obstacles)
         if index is not None:
-            print("Colliding", self.waypoints[index], obstacle)
+            pass
+            #print("Colliding", self.waypoints[index], obstacle)
 
         if self.VERBOSE:
             # Draw the trajectory on PyBullet's GUI.
