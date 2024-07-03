@@ -3,38 +3,22 @@
 from __future__ import annotations
 
 import importlib.util
+import logging
 import sys
-from math import asin, atan2
 from pathlib import Path
-from typing import Type
+from typing import TYPE_CHECKING, Type
 
 import numpy as np
 import pybullet as p
+import yaml
+from munch import munchify
 
 from lsy_drone_racing.controller import BaseController
 
+if TYPE_CHECKING:
+    from munch import Munch
 
-def euler_from_quaternion(x: float, y: float, z: float, w: float) -> tuple[float, float, float]:
-    """Convert a quaternion into euler angles (roll, pitch, yaw).
-
-    roll is rotation around x in radians (counterclockwise)
-    pitch is rotation around y in radians (counterclockwise)
-    yaw is rotation around z in radians (counterclockwise)
-    """
-    t0 = +2.0 * (w * x + y * z)
-    t1 = +1.0 - 2.0 * (x * x + y * y)
-    roll_x = atan2(t0, t1)
-
-    t2 = +2.0 * (w * y - z * x)
-    t2 = +1.0 if t2 > +1.0 else t2
-    t2 = -1.0 if t2 < -1.0 else t2
-    pitch_y = asin(t2)
-
-    t3 = +2.0 * (w * z + x * y)
-    t4 = +1.0 - 2.0 * (y * y + z * z)
-    yaw_z = atan2(t3, t4)
-
-    return roll_x, pitch_y, yaw_z  # in radians
+logger = logging.getLogger(__name__)
 
 
 def map2pi(angle: np.ndarray) -> np.ndarray:
@@ -68,6 +52,20 @@ def load_controller(path: Path) -> Type[BaseController]:
         return controller_module.Controller
     except ImportError as e:
         raise e
+
+
+def load_config(path: Path) -> Munch:
+    """Load the race config file.
+
+    Args:
+        path: Path to the config file.
+
+    Returns:
+        The munchified config dict.
+    """
+    assert path.exists(), f"Configuration file not found: {path}"
+    with open(path, "r") as file:
+        return munchify(yaml.safe_load(file))
 
 
 def check_gate_pass(
