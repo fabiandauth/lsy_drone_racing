@@ -37,24 +37,10 @@ from lsy_drone_racing.constants import (
     QuadrotorPhysicParams,
 )
 from lsy_drone_racing.import_utils import get_ros_package_path, pycrazyswarm
-from lsy_drone_racing.utils import (
-    check_drone_start_pos,
-    check_gate_pass,
-    check_race_track,
-    load_config,
-    load_controller,
-)
+from lsy_drone_racing.utils import check_gate_pass, load_controller
 from lsy_drone_racing.vicon import Vicon
-from lsy_drone_racing.wrapper import DroneRacingWrapper
 
-if TYPE_CHECKING:
-    from munch import Munch
-    from safe_control_gym.envs.gym_pybullet_drones.quadrotor import Quadrotor
-
-# rospy.init_node changes the default logging configuration of Python, which is bad practice at
-# best. As a workaround, we can create loggers under the ROS root logger `rosout`.
-# Also see https://github.com/ros/ros_comm/issues/1384
-logger = logging.getLogger("rosout." + __name__)
+logger = logging.getLogger(__name__)
 
 
 def get_init_info(
@@ -190,23 +176,47 @@ def main(config: str = "config/getting_started.yaml", controller: str = "example
     time_helper = swarm.timeHelper
     cf = swarm.allcfs.crazyflies[0]
 
-    # Check if the gates, obstacles and drone are positioned correctly. This needs to be called
-    # after initializing crazyswarm. Vicon and crazyswarm attempt to initialize a ROS node. Vicon
-    # handles the case that a node is already running, but crazyswarm does not
-    check_race_track(config)
-    check_drone_start_pos(config)
-
-    # Start Vicon interface with all gates, obstacles and the drone
     gate_names = [f"gate{i}" for i in range(1, len(config.quadrotor_config.gates) + 1)]
     obstacle_names = [f"obstacle{i}" for i in range(1, len(config.quadrotor_config.obstacles) + 1)]
     vicon = Vicon(track_names=gate_names + obstacle_names, timeout=1.0)
+
+    config_path = Path(config).resolve()
+    assert config_path.is_file(), "Config file does not exist!"
+    with open(config_path, "r") as f:
+        config = yaml.load(f, yaml.SafeLoader)
+    config_factory = ConfigFactory()
+    config_factory.base_dict = config
+    config = config_factory.merge()
+
+    # Check if the real drone position matches the settings
+    tol = 0.1
+    init_state = config.quadrotor_config.init_state
+    drone_pos = np.array([init_state[key] for key in ("init_x", "init_y", "init_z")])
+    if d := np.linalg.norm(drone_pos - vicon.pos["cf"]) > tol:
+        raise RuntimeError(
+            (
+                f"Distance between drone and starting position too great ({d:.2f}m)"
+                f"Position is {vicon.pos['cf']}, should be {drone_pos}"
+            )
+        )
+
+    # TODO: Replace with autodetection of gate and obstacle positions
+    # TODO: Change obstacle and gate definitions to freely adjust the height
+    gate_poses = config.quadrotor_config.gates
+    for gate in gate_poses:
+        if gate[3] != 0 or gate[4] != 0:
+            raise ValueError("Gates can't have roll or pitch!")
+    obstacle_poses = config.quadrotor_config.obstacles
 
     # Create a safe-control-gym environment from which to take the symbolic models
     config.quadrotor_config["ctrl_freq"] = FIRMWARE_FREQ
     env = make("quadrotor", **config.quadrotor_config)
     _, env_info = env.reset()
     # Override environment state and evaluate constraints
-    sync_env(env=env, vicon=vicon)
+    drone_pos, drone_rot = vicon.pos[vicon.drone_name], vicon.rpy[vicon.drone_name]
+    drone_pos_and_vel = [drone_pos[0], 0, drone_pos[1], 0, drone_pos[2], 0]
+    drone_rot_and_agl_vel = [drone_rot[0], drone_rot[1], drone_rot[2], 0, 0, 0]
+    env.state = drone_pos_and_vel + drone_rot_and_agl_vel
     constraint_values = env.constraints.get_values(env, only_state=True)
 
     # Create controller
@@ -228,22 +238,55 @@ def main(config: str = "config/getting_started.yaml", controller: str = "example
         while not time_helper.isShutdown():
             curr_time = time.time() - start_time
             # Override environment state and evaluate constraints
-            sync_env(env=env, vicon=vicon)
+            p, r = vicon.pos["cf"], vicon.rpy["cf"]
+            env.state = [p[0], 0, p[1], 0, p[2], 0, r[0], r[1], r[2], 0, 0, 0]
+            state_error = (env.state - env.X_GOAL) * env.info_mse_metric_state_weight
+            constraint_values = env.constraints.get_values(env, only_state=True)
+            # IROS 2022 - Constrain violation flag for reward.
+            env.cnstr_violation = env.constraints.is_violated(env, c_value=constraint_values)
+            cnstr_num = 1 if env.cnstr_violation else 0
+
+            p = vicon.pos["cf"]
+            # This only looks at the x-y plane, could be improved
+            # TODO: Replace with 3D distance once gate poses are given with height
+            gate_dist = np.sqrt(np.sum((p[0:2] - vicon.pos[gate_names[target_gate_id]][0:2]) ** 2))
+            if gate_dist < 0.45:
+                current_target_gate_pos = vicon.pos[gate_names[target_gate_id]]
+            else:
+                current_target_gate_pos = gate_poses[target_gate_id][0:6]
+            info = {
+                "mse": np.sum(state_error**2),
+                "collision": (None, False),  # Leave always false in sim2real
+                "current_target_gate_id": target_gate_id,
+                "current_target_gate_in_range": gate_dist < 0.45,
+                "current_target_gate_pos": current_target_gate_pos,
+                "current_target_gate_type": gate_poses[target_gate_id][6],
+                "at_goal_position": False,  # Leave always false in sim2real
+                "task_completed": False,  # Leave always false in sim2real
+                "constraint_values": constraint_values,
+                "constraint_violation": cnstr_num,
+            }
+
             # Check if the drone has passed the current gate
-            if check_gate_pass(gates_pose[gate_id], vicon.pos[vicon.drone_name], last_drone_pos):
-                gate_id += 1
-                logger.info(f"Gate {gate_id} passed in {curr_time:.4}s")
+            if check_gate_pass(
+                gate_poses[target_gate_id], vicon.pos[vicon.drone_name], last_drone_pos
+            ):
+                target_gate_id += 1
+                print(f"Gate {target_gate_id} passed in {curr_time:.4}s")
             last_drone_pos = vicon.pos[vicon.drone_name].copy()
-            # Check if we have reached the end of the track
-            if gate_id == len(gates_pose):
-                gate_id = -1
-                if total_time is None:
-                    total_time = time.time() - start_time
-            # Get the latest observation and call the controller
-            info = get_info(env, vicon, gate_id, config)
-            obs = get_observation(info, vicon)
-            # For deploy: Reward always 0, done always false
-            command_type, args = ctrl.compute_control(curr_time, obs, 0, False, info)
+
+            if target_gate_id == len(gate_poses):  # Reached the end
+                target_gate_id = -1
+                total_time = time.time() - start_time
+
+            # Get the latest vicon observation and call the controller
+            p = vicon.pos[vicon.drone_name]
+            drone_pos_and_vel = [p[0], 0, p[1], 0, p[2], 0]
+            r = vicon.rpy[vicon.drone_name]
+            drone_rot_and_agl_vel = [r[0], r[1], r[2], 0, 0, 0]
+            vicon_obs = drone_pos_and_vel + drone_rot_and_agl_vel
+            # In sim2real: Reward always 0, done always false
+            command_type, args = ctrl.compute_control(curr_time, vicon_obs, 0, False, info)
             log_cmd.append([curr_time, rospy.get_time(), command_type, args])  # Save for logging
             apply_command(cf, command_type, args)  # Send the command to the drone controller
 

@@ -21,6 +21,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def map2pi(angle: np.ndarray) -> np.ndarray:
+    """Map an angle or array of angles to the interval of [-pi, pi].
+
+    Args:
+        angle: Number or array of numbers.
+
+    Returns:
+        The remapped angles.
+    """
+    return ((angle + np.pi) % (2 * np.pi)) - np.pi
+
+
 def load_controller(path: Path) -> Type[BaseController]:
     """Load the controller module from the given path and return the Controller class.
 
