@@ -80,6 +80,7 @@ class Controller(BaseController):
         #########################
         # REPLACE THIS (START) ##
         #########################
+        self.VERBOSE = False
         self.initial_info = initial_info
 
         self.start = initial_obs[0:4]
@@ -96,6 +97,7 @@ class Controller(BaseController):
         # Example: Hard-code waypoints through the gates. Obviously this is a crude way of
         # completing the challenge that is highly susceptible to noise and does not generalize at
         # all. It is meant solely as an example on how the drones can be controlled
+
         waypoints = []
         waypoints.append([self.initial_obs[0], self.initial_obs[1], 0.1])
         waypoints.append([self.initial_obs[0], self.initial_obs[1], 0.3])
@@ -141,17 +143,23 @@ class Controller(BaseController):
                 initial_info["x_reference"][4],
             ]
         )
-        waypoints = np.array(waypoints)
+        self.waypoints = np.array(waypoints)
 
-        tck, u = interpolate.splprep([waypoints[:, 0], waypoints[:, 1], waypoints[:, 2]], s=0.1)
-        self.waypoints = waypoints
+
+        tck, u = interpolate.splprep([self.waypoints[:, 0], self.waypoints[:, 1], self.waypoints[:, 2]], s=0.1)
         duration = self.goal_duration
+
         t = np.linspace(0, 1, int(duration * self.CTRL_FREQ))
         self.ref_x, self.ref_y, self.ref_z = interpolate.splev(t, tck)
 
-        index, obstacle = self._check_collision(self.obstacles)
-        if index is not None:
-            print("Colliding", self.waypoints[index], obstacle)
+        t_accurate = np.linspace(0, 1, 1000)
+        self.acc_x, self.acc_y, self.acc_z = interpolate.splev(t_accurate, tck)
+
+        #index, obstacle = self._check_collision([self.obstacles[0]], self.ax, y, z)
+        #if index is not None:
+            #print("Colliding", self.waypoints[index], obstacle)
+            #self.waypoints[index, 0] = self.waypoints[index, 0] + 0.2
+
 
         assert max(self.ref_z) < 2.5, "Drone must stay below the ceiling"
 
@@ -210,6 +218,14 @@ class Controller(BaseController):
         if gate_updated:
             waypoints = self._regen_waypoints(self.gates, self.obstacles, pos, self.goal)
             self._recalc_trajectory(waypoints, iteration)
+        if obstacle_update:
+            if self._find_next_gate() < 1:
+                index, obstacle = self._check_collision([self.obstacles[0]], self.acc_x, self.acc_y, self.acc_z)
+                if index is not None:
+                    self.waypoints[index, 0] = self.waypoints[index, 0] - 0.3
+                    #print("avoid obstacle 1")
+                    self._recalc_trajectory(self.waypoints, 0)
+
 
         step = iteration - self.step
 
@@ -347,7 +363,7 @@ class Controller(BaseController):
 
     def _resolve_collision(self, obstacles, gate_pos, direction):
         allowed_rot = [0, np.pi / 5, -np.pi / 5, np.pi / 4, -np.pi / 4, np.pi / 8, -np.pi / 8]
-        lengths = [0.3, 0.2, 0.1]
+        lengths = [0.25, 0.2, 0.1]
         rot = gate_pos[3]
 
         for length in lengths:
@@ -374,23 +390,20 @@ class Controller(BaseController):
         self.step = iteration - 1
         duration = self.goal_duration/(self._find_next_gate() + 1)
         t = np.linspace(0, 1, int(duration * self.CTRL_FREQ))
+        t_accurate = np.linspace(0, 1, 1000)
         self.ref_x, self.ref_y, self.ref_z = interpolate.splev(t, tck)
+        self.acc_x, self.acc_y, self.acc_z = interpolate.splev(t_accurate, tck)
         assert max(self.ref_z) < 2.5, "Drone must stay below the ceiling"
-
-        index, obstacle = self._check_collision(self.obstacles)
-        if index is not None:
-            pass
-            #print("Colliding", self.waypoints[index], obstacle)
 
         if self.VERBOSE:
             # Draw the trajectory on PyBullet's GUI.
             draw_trajectory(self.initial_info, self.waypoints, self.ref_x, self.ref_y, self.ref_z)
 
-    def _check_collision(self, obstacles):
+    def _check_collision(self, obstacles, x, y, z):
         for obstacle in obstacles:
             for i in range(len(self.ref_x)):
-                point = [self.ref_x[i], self.ref_y[i], self.ref_z[i]]
-                if np.linalg.norm(np.array(point[0:2]) - np.array(obstacle[0:2])) < 0.15:
+                point = [x[i], y[i], z[i]]
+                if np.linalg.norm(np.array(point[0:2]) - np.array(obstacle[0:2])) < 0.2:
                     if point[2] < 1.05:
                         collision_index = self._get_collision_waypoint(obstacle, point)
                         return collision_index, obstacle
@@ -409,6 +422,11 @@ class Controller(BaseController):
 
         waypoints = []
         waypoints.append(pos)
+
+        if next_gate_index < 1 and np.linalg.norm(pos[0:3] - self.start[0:3]) < 0.5:
+            waypoints.append([self.initial_obs[0], self.initial_obs[1], 0.1])
+            waypoints.append([self.initial_obs[0], self.initial_obs[1], 0.3])
+            waypoints.append([1, 0, z_low])
         #waypoints.append([1, 0, z_low])
 
         if next_gate_index< 1:
@@ -418,7 +436,7 @@ class Controller(BaseController):
             waypoints.append(
                 [
                     (gates[0][0] + gates[1][0]) / 2 - 0.7,
-                    (gates[0][1] + gates[1][1]) / 2 - 0.3,
+                    (gates[0][1] + gates[1][1]) / 2 - 0.45,
                     (z_low + z_high) / 2,
                 ]
             )
