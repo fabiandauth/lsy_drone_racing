@@ -33,6 +33,7 @@ from scipy import interpolate
 from lsy_drone_racing.command import Command
 from lsy_drone_racing.controller import BaseController
 from lsy_drone_racing.utils import draw_trajectory
+import pybullet as p
 
 
 class Controller(BaseController):
@@ -43,7 +44,7 @@ class Controller(BaseController):
         initial_obs: np.ndarray,
         initial_info: dict,
         buffer_size: int = 100,
-        verbose: bool = False,
+        verbose: bool = True,
     ):
         """Initialization of the controller.
 
@@ -80,7 +81,7 @@ class Controller(BaseController):
         #########################
         # REPLACE THIS (START) ##
         #########################
-        self.VERBOSE = False
+        self.VERBOSE = True
         self.initial_info = initial_info
 
         self.start = initial_obs[0:4]
@@ -217,20 +218,26 @@ class Controller(BaseController):
 
         if gate_updated:
             waypoints = self._regen_waypoints(self.gates, self.obstacles, pos, self.goal)
-            self._recalc_trajectory(waypoints, iteration)
+            self._recalc_trajectory(waypoints, iteration, pos)
         if obstacle_update:
             if self._find_next_gate() < 1:
                 index, obstacle = self._check_collision([self.obstacles[0]], self.acc_x, self.acc_y, self.acc_z)
                 if index is not None:
                     self.waypoints[index, 0] = self.waypoints[index, 0] - 0.3
                     #print("avoid obstacle 1")
-                    self._recalc_trajectory(self.waypoints, 0)
+                    self._recalc_trajectory(self.waypoints, 0, pos)
 
 
         step = iteration - self.step
 
+
+
         if step < len(self.ref_x):
-            target_pos = np.array([self.ref_x[step], self.ref_y[step], self.ref_z[step]])
+            offset = 0
+            target_pos = np.array([self.ref_x[step+offset], self.ref_y[step+offset], self.ref_z[step+offset]])
+            p.addUserDebugPoints([target_pos], pointSize=6, pointColorsRGB=[[0,1,0]])
+            target_pos = self._speed_control(target_pos, pos, factor=0.02)
+            p.addUserDebugPoints([target_pos], pointSize=3, pointColorsRGB=[[0,0,1]])
             target_vel = np.zeros(3)
             target_acc = np.zeros(3)
             target_yaw = 0.0
@@ -384,15 +391,22 @@ class Controller(BaseController):
         #print("Error no valid position found")
         return None
 
-    def _recalc_trajectory(self, waypoints, iteration):
+    def _recalc_trajectory(self, waypoints, iteration, pos):
         tck, u = interpolate.splprep([waypoints[:, 0], waypoints[:, 1], waypoints[:, 2]], s=0.1)
         self.waypoints = waypoints
         self.step = iteration - 1
         duration = self.goal_duration/(self._find_next_gate() + 1)
         t = np.linspace(0, 1, int(duration * self.CTRL_FREQ))
         t_accurate = np.linspace(0, 1, 1000)
-        self.ref_x, self.ref_y, self.ref_z = interpolate.splev(t, tck)
-        self.acc_x, self.acc_y, self.acc_z = interpolate.splev(t_accurate, tck)
+        tmp_x, tmp_y, tmp_z = interpolate.splev(t, tck)
+        nearest_index = np.argmin(np.linalg.norm(np.array([tmp_x, tmp_y, tmp_z]).T - pos, axis=1))
+        self.ref_x = tmp_x[nearest_index:]
+        self.ref_y = tmp_y[nearest_index:]
+        self.ref_z = tmp_z[nearest_index:]
+        tmp_acc_x, tmp_acc_y, tmp_acc_z = interpolate.splev(t_accurate, tck)
+        self.acc_x = tmp_acc_x[nearest_index:]
+        self.acc_y = tmp_acc_y[nearest_index:]
+        self.acc_z = tmp_acc_z[nearest_index:]
         assert max(self.ref_z) < 2.5, "Drone must stay below the ceiling"
 
         if self.VERBOSE:
@@ -423,13 +437,20 @@ class Controller(BaseController):
         waypoints = []
         waypoints.append(pos)
 
+        j = 1
+
         if next_gate_index < 1 and np.linalg.norm(pos[0:3] - self.start[0:3]) < 0.5:
             waypoints.append([self.initial_obs[0], self.initial_obs[1], 0.1])
             waypoints.append([self.initial_obs[0], self.initial_obs[1], 0.3])
             waypoints.append([1, 0, z_low])
+            j += 1
         #waypoints.append([1, 0, z_low])
 
         if next_gate_index< 1:
+            if j == 0:
+                waypoints.append([1, 0, z_low])
+                waypoints.append(pos)
+
             waypoints.append(self._resolve_collision(obstacles,gates[0], -1))
             waypoints.append([gates[0][0], gates[0][1], gates[0][2]])
             waypoints.append(self._resolve_collision(obstacles, gates[0], 1))
@@ -447,12 +468,27 @@ class Controller(BaseController):
                     (z_low + z_high) / 2,
                 ]
             )
+            j += 1
+
         if next_gate_index < 2:
+            if j == 0:
+                waypoints.append(
+                    [
+                        (gates[0][0] + gates[1][0]) / 2 - 0.5,
+                        (gates[0][1] + gates[1][1]) / 2 - 0.6,
+                        (z_low + z_high) / 2,
+                    ]
+                )
+                waypoints.append(pos)
             waypoints.append([gates[1][0] - 0.3, gates[1][1] - 0.2, z_high])
             waypoints.append([gates[1][0], gates[1][1], gates[1][2]])
             waypoints.append([gates[1][0] + 0.2, gates[1][1] + 0.2, z_high])
+            j += 1
 
         if next_gate_index < 3:
+            if j == 0:
+                waypoints.append([gates[1][0] + 0.2, gates[1][1] + 0.2, z_high])
+                waypoints.append(pos)
             waypoints.append(self._resolve_collision(obstacles, gates[2], -1))
             #waypoints.append([gates[2][0], gates[2][1] - 0.4, z_low])
             waypoints.append([gates[2][0], gates[2][1], gates[2][2]])
@@ -462,8 +498,14 @@ class Controller(BaseController):
             point[2] = z_high + 0.2
             waypoints.append(point)
             #waypoints.append([gates[2][0], gates[2][1] + 0.2, z_high + 0.2])
+            j += 1
 
         if next_gate_index < 4:
+            if j == 0:
+                point = self._resolve_collision(obstacles, gates[2], 1)
+                point[2] = z_high + 0.2
+                waypoints.append(point)
+                waypoints.append(pos)
             waypoints.append([gates[3][0], gates[3][1] + 0.3, z_high+ 0.2])
             waypoints.append([gates[3][0], gates[3][1], gates[3][2]])
             waypoints.append([gates[3][0], gates[3][1] - 0.1, z_high + 0.05])
@@ -485,3 +527,14 @@ class Controller(BaseController):
         )
         waypoints = np.array(waypoints)
         return waypoints
+    
+    def _speed_control(self, ref, pos, factor):
+        # Calculate the direction vector from pos to ref
+        direction = ref - pos
+
+        distance = np.linalg.norm(pos - ref)
+
+        # Normalize the direction vector
+        direction /= np.linalg.norm(direction)
+
+        return ref + ((1/distance)* factor * direction)
