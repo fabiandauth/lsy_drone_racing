@@ -71,8 +71,8 @@ class DroneRacingWrapper(Wrapper):
         #       An action of [0, 0, 0, 0] corresponds to no change
         #       An action of [1, 0, -1, 1] at pose [0.5, 1.0, 2.3, 0] corresponds to a desired
         #       pose of [1.5, 1, 1.3, np.pi].
-        self.action_scale = np.array([1, 1, 1, np.pi])
-        self.action_space = Box(-1, 1, shape=(4,), dtype=np.float32)
+        self.action_scale = np.array([1, 1, 1, 0])
+        self.action_space = Box(-0.5, 0.5, shape=(4,), dtype=np.float32)
 
         # Observation space:
         # [drone_xyz, drone_rpy, drone_vxyz, drone vrpy, gates_xyz_yaw, gates_in_range,
@@ -90,18 +90,33 @@ class DroneRacingWrapper(Wrapper):
         # obstacles_in_range)  A boolean array indicating if the drone is within the obstacles'
         #       range. The length is dependent on the number of obstacles.
         # gate_id)  The ID of the current target gate. -1 if the task is completed.
-        n_gates = env.env.NUM_GATES
+        #n_gates = env.env.NUM_GATES
+        n_gates = 1
         n_obstacles = env.env.n_obstacles
         # Velocity limits are set to 10 m/s for the drone and 10 rad/s for the angular velocity.
         # While drones could go faster in theory, it's not safe in practice and we don't allow it in
         # sim either.
         drone_limits = [5, 5, 5, np.pi, np.pi, np.pi, 10, 10, 10, 10, 10, 10]
-        gate_limits = [5, 5, 5, np.pi] * n_gates + [1] * n_gates  # Gate poses and range mask
-        obstacle_limits = [5, 5, 5] * n_obstacles + [1] * n_obstacles  # Obstacle pos and range mask
-        obs_limits = drone_limits + gate_limits + obstacle_limits + [n_gates]  # [1] for gate_id
+        distance_limits = [10, 10]  # Distance to gate and obstacle
+        gate_limits = [5, 5, 5, np.pi] #* n_gates + [1] * n_gates  # Gate poses and range mask
+        obstacle_limits = [5, 5, 5] * n_obstacles  # Obstacle pos and range mask
+        obs_limits = drone_limits + distance_limits + gate_limits + obstacle_limits + [n_gates]  # [1] for gate_id
         obs_limits_high = np.array(obs_limits)
         obs_limits_low = np.concatenate([-obs_limits_high[:-1], [-1]])
+        #self.observation_space = Box(obs_limits_low, obs_limits_high, dtype=np.float32)
         self.observation_space = Box(obs_limits_low, obs_limits_high, dtype=np.float32)
+
+                # drone_pos,  # 3
+                # drone_rpy,  # 3
+                # drone_vel,  # 3
+                # drone_ang_vel,  # 3
+                # dist_to_gate,   # 1
+                # dist_to_obstacles, # 1
+                # info["gates_pose"][current_gate_id, [0, 1, 2, 5]].flatten(), # 4
+                # #info["gates_in_range"],
+                # info["obstacles_pose"][:, :3].flatten(), # 3
+                # #info["obstacles_in_range"],
+                # [info["current_gate_id"]], # 1
 
         self.pyb_client_id: int = env.env.PYB_CLIENT
         # Config and helper flags
@@ -163,7 +178,7 @@ class DroneRacingWrapper(Wrapper):
         assert action.shape[-1] == 4, "Action must have shape (..., 4)"
         # The firmware does not use the action input in the step function
         zeros = np.zeros(3)
-        self.env.sendFullStateCmd(action[:3], zeros, zeros, action[3], zeros, self._sim_time)
+        self.env.sendFullStateCmd(action[:3], zeros, zeros, 0, zeros, self._sim_time)
         # The firmware quadrotor env requires the sim time as input to the step function. It also
         # returns the desired rotor forces. Both modifications are not part of the gymnasium
         # interface. We automatically insert the sim time and reuse the last rotor forces.
@@ -201,7 +216,6 @@ class DroneRacingWrapper(Wrapper):
             The transformed action.
         """
         action = self._drone_pose + (action * self.action_scale)
-        action[3] = map2pi(action[3])  # Ensure yaw is in [-pi, pi]
         return action
 
     def render(self):
@@ -230,124 +244,36 @@ class DroneRacingWrapper(Wrapper):
         drone_vel = obs[1:6:2]
         drone_rpy = obs[6:9]
         drone_ang_vel = obs[9:12]
+
+        current_gate_id = info["current_gate_id"]
+        if info["gates_pose"][current_gate_id, -1] == 0:
+            current_gate = [info["gates_pose"][current_gate_id, 0], info["gates_pose"][current_gate_id, 1], 0.525]
+        else:
+            current_gate = [info["gates_pose"][current_gate_id, 0], info["gates_pose"][current_gate_id, 1], 1]
+
+        dist_to_gate = np.linalg.norm(current_gate - drone_pos)
+
+        try: 
+            obstacles_in_range_index = np.where(info["obstacles_in_range"] == 1)[0]
+            dist_to_obstacles = np.linalg.norm(info["obstacles_pose"][obstacles_in_range_index, :2] - drone_pos[:2])
+        except:
+            dist_to_obstacles = 10 # if no obstacles in range, set to 10
         obs = np.concatenate(
             [
-                drone_pos,
-                drone_rpy,
-                drone_vel,
-                drone_ang_vel,
-                info["gates_pose"][:, [0, 1, 2, 5]].flatten(),
-                info["gates_in_range"],
-                info["obstacles_pose"][:, :3].flatten(),
-                info["obstacles_in_range"],
-                [info["current_gate_id"]],
+                drone_pos,  # 3 !
+                drone_rpy,  # 3
+                drone_vel,  # 3
+                drone_ang_vel,  # 3
+                [dist_to_gate],   # 1 !
+                [dist_to_obstacles], # 1
+                info["gates_pose"][current_gate_id, [0, 1, 2, 5]].flatten(), # 4
+                #info["gates_in_range"],
+                info["obstacles_pose"][:, :3].flatten(), # 3
+                #info["obstacles_in_range"],
+                [info["current_gate_id"]], # 1
             ]
         )
         return obs
-
-
-class DroneRacingObservationWrapper:
-    """Wrapper to transform the observation space the firmware wrapper.
-
-    This wrapper matches the observation space of the DroneRacingWrapper. See its definition for
-    more details. While we want to transform the observation space, we do not want to change the API
-    of the firmware wrapper. Therefore, we create a separate wrapper for the observation space.
-
-    Note:
-        This wrapper is not a subclass of the gymnasium ObservationWrapper because the firmware is
-        not compatible with the gymnasium API.
-    """
-
-    def __init__(self, env: FirmwareWrapper):
-        """Initialize the wrapper.
-
-        Args:
-            env: The firmware wrapper.
-        """
-        if not isinstance(env, FirmwareWrapper):
-            raise TypeError(f"`env` must be an instance of `FirmwareWrapper`, is {type(env)}")
-        self.env = env
-        self.pyb_client_id: int = env.env.PYB_CLIENT
-
-    def __getattribute__(self, name: str) -> Any:
-        """Get an attribute from the object.
-
-        If the attribute is not found in the wrapper, it is fetched from the firmware wrapper.
-
-        Args:
-            name: The name of the attribute.
-
-        Returns:
-            The attribute value.
-        """
-        try:
-            return super().__getattribute__(name)
-        except AttributeError:
-            return getattr(self.env, name)
-
-    def reset(self, *args: Any, **kwargs: dict[str, Any]) -> tuple[np.ndarray, dict]:
-        """Reset the environment.
-
-        Args:
-            args: Positional arguments to pass to the firmware wrapper.
-            kwargs: Keyword arguments to pass to the firmware wrapper.
-
-        Returns:
-            The transformed observation and the info dict.
-        """
-        obs, info = self.env.reset(*args, **kwargs)
-        obs = DroneRacingWrapper.observation_transform(obs, info)
-        return obs, info
-
-    def step(
-        self, *args: Any, **kwargs: dict[str, Any]
-    ) -> tuple[np.ndarray, float, bool, dict, np.ndarray]:
-        """Take a step in the current environment.
-
-        Args:
-            args: Positional arguments to pass to the firmware wrapper.
-            kwargs: Keyword arguments to pass to the firmware wrapper.
-
-        Returns:
-            The transformed observation and the info dict.
-        """
-        obs, reward, done, info, action = self.env.step(*args, **kwargs)
-        obs = DroneRacingWrapper.observation_transform(obs, info)
-        return obs, reward, done, info, action
-
-
-class MultiProcessingWrapper(Wrapper):
-    """Wrapper to enable multiprocessing for vectorized environments.
-
-    The info dict returned by the firmware wrapper contains CasADi models. These models cannot be
-    pickled and therefore cannot be passed between processes. This wrapper removes the CasADi models
-    from the info dict to enable multiprocessing.
-    """
-
-    def __init__(self, env: Env):
-        """Initialize the wrapper.
-
-        Args:
-            env: The firmware wrapper.
-        """
-        super().__init__(env)
-
-    def reset(self, *args: Any, **kwargs: dict[str, Any]) -> tuple[np.ndarray, dict]:
-        """Reset the environment.
-
-        Returns:
-            The initial observation of the next episode.
-        """
-        obs, info = self.env.reset(*args, **kwargs)
-        return obs, self._remove_non_serializable(info)
-
-    def _remove_non_serializable(self, info: dict[str, Any]) -> dict[str, Any]:
-        """Remove non-serializable objects from the info dict."""
-        # CasADi models cannot be pickled and therefore cannot be passed between processes
-        info.pop("symbolic_model", None)
-        info.pop("symbolic_constraints", None)
-        return info
-
 
 class RewardWrapper(Wrapper):
     """Wrapper to alter the default reward function from the environment for RL training."""
@@ -403,17 +329,42 @@ class RewardWrapper(Wrapper):
         Returns:
             The computed reward.
         """
-        gate_id = info["current_gate_id"]
-        gate_reward = np.exp(-np.linalg.norm(info["gates_pose"][gate_id, :3] - obs[:3]))
-        if gate_id == self._last_gate:
-            gate_passed_reward = 0 
-        else:
-            gate_passed_reward = 0.1
-        if terminated and not info["task_completed"]: 
-            crash_penality = -1 
-        else:
-            crash_penality = 0
+        drone_pos = obs[:3]
+        drone_rpy = obs[3:6]
+        drone_vel = obs[6:9]
+        drone_ang_vel = obs[9:12]
+        dist_to_gate = obs[12]
+        dist_to_obstacle = obs[13]
+        gates_pose = obs[14:18]
+        obstacle_pose = obs[18:21]
+        current_gate_id = obs[21]
+
+        z_low = 0.525
+        z_high = 1
+
+        rew = 0
+
+        rew += 1/(dist_to_gate+0.1)
+
+        if dist_to_obstacle < 0.4:
+            rew -= 1/(dist_to_obstacle+0.1)
+
+        rew = rew + reward
+
+        return rew
         
-        rew = gate_reward + crash_penality + gate_passed_reward
-        print(f"Reward from _compute_reward: {rew}")
+
+        # gate_id = info["current_gate_id"]
+        # gate_reward = np.exp(-np.linalg.norm(info["gates_pose"][gate_id, :3] - obs[:3]))
+        # if gate_id == self._last_gate:
+        #     gate_passed_reward = 0 
+        # else:
+        #     gate_passed_reward = 0.1
+        # if terminated and not info["task_completed"]: 
+        #     crash_penality = -1 
+        # else:
+        #     crash_penality = 0
+        
+        # rew = gate_reward + crash_penality + gate_passed_reward
+        # print(f"Reward from _compute_reward: {rew}")
         return rew

@@ -15,14 +15,14 @@ from pathlib import Path
 import fire
 from safe_control_gym.utils.registration import make
 from stable_baselines3 import PPO
-from sb3_contrib import RecurrentPPO
+#from sb3_contrib import RecurrentPPO
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, EvalCallback
 
 
 from lsy_drone_racing.constants import FIRMWARE_FREQ
 from lsy_drone_racing.utils import load_config
-from lsy_drone_racing.wrapper import DroneRacingWrapper
+from lsy_drone_racing.wrapper import DroneRacingWrapper, RewardWrapper
 import datetime
 
 from train_utils import save_observations, process_observation
@@ -57,7 +57,7 @@ def create_race_env(config_path: Path, gui: bool = False) -> DroneRacingWrapper:
     config.quadrotor_config["ctrl_freq"] = FIRMWARE_FREQ
     env_factory = partial(make, "quadrotor", **config.quadrotor_config)
     firmware_env = make("firmware", env_factory, FIRMWARE_FREQ, CTRL_FREQ)
-    return DroneRacingWrapper(firmware_env, terminate_on_lap=True)
+    return RewardWrapper(DroneRacingWrapper(firmware_env, terminate_on_lap=True))
 
 
 def main(config: str = "config/getting_started.yaml", gui: bool = False):
@@ -90,7 +90,7 @@ def main(config: str = "config/getting_started.yaml", gui: bool = False):
     # for tensorboard logging start tensorboard with the following command in a seperate terminal:
     # tensorboard --logdir trained_models/logs
 
-    model = RecurrentPPO("MlpLstmPolicy", 
+    model = PPO("MlpPolicy", 
                 env, verbose=1,
                 learning_rate=3e-5,
                 n_steps=n_steps,
@@ -106,28 +106,6 @@ def main(config: str = "config/getting_started.yaml", gui: bool = False):
     )
 
     model.save(save_path / f"model.zip")
-
-    # Get the observations from the environment
-    obs_list = []
-    vec_env = model.get_env()
-
-    x = vec_env.reset()
-
-    process_observation(x, True)
-
-    done = False
-
-    ret = 0.
-    episode_length = 0
-    while not done:
-        action, *_ = model.predict(x)
-        x, r, done ,info = vec_env.step(action)
-        ret += r
-        episode_length += 1
-        obs_list.append(process_observation(x, False))
-
-    save_observations(obs_list, save_path, current_datetime)
-
     print(save_path)
     
     
