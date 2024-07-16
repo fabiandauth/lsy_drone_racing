@@ -148,7 +148,6 @@ class Controller(BaseController):
 
         tck, u = interpolate.splprep([self.waypoints[:, 0], self.waypoints[:, 1], self.waypoints[:, 2]], s=0.1)
         duration = self.goal_duration
-        print(self.CTRL_FREQ)
         t = np.linspace(0, 1, int(duration * self.CTRL_FREQ))
         self.ref_x, self.ref_y, self.ref_z = interpolate.splev(t, tck)
 
@@ -218,7 +217,7 @@ class Controller(BaseController):
         if gate_updated:
             waypoints = self._regen_waypoints(self.gates, self.obstacles, pos, self.goal)
             self._recalc_trajectory(waypoints, self.last_step)
-            self.last_step = 2
+            self.last_step = 10
         if obstacle_update:
             if self._find_next_gate() < 1:
                 index, obstacle = self._check_collision([self.obstacles[0]], self.acc_x, self.acc_y, self.acc_z)
@@ -354,7 +353,7 @@ class Controller(BaseController):
         update = False
         for i in range(12, 25, 4):
             if not np.array_equal(obs[i:i+4], self.gates[list_index]) and self.updated_gates[list_index] == 0:
-                print(self.gates[list_index][0]- obs[i])
+                #print(self.gates[list_index][0]- obs[i])
                 self.gates[list_index] = obs[i : i + 4]
                 self.updated_gates[list_index] = 1
                 update = True
@@ -367,10 +366,12 @@ class Controller(BaseController):
         distance_next_gate = np.linalg.norm(next_gate[0:3] - pos[0:3])
         distance_last_gate = np.linalg.norm(last_gate[0:3] - pos[0:3])
         #mid_point = distance_last_gate + distance_next_gate / 2
-        min_speed = 1.2
+        min_speed = 1.51
         if distance_next_gate > distance_last_gate:
-            #speed = 1/(np.exp(d))
-            next_waypoint = round(last_waypoint + min_speed + np.exp(1.5 * distance_last_gate))
+            if distance_last_gate > 0.1:
+                next_waypoint = round(last_waypoint + min_speed + 2)
+            else:
+                next_waypoint = round(last_waypoint + min_speed + np.exp(1.9 * distance_last_gate) + 0.4)
         else:
             next_waypoint = round(last_waypoint + min_speed + 1)
         return next_waypoint
@@ -391,9 +392,8 @@ class Controller(BaseController):
             list_index += 1
         return update     #updated obstacle parameter route recalculation necessary
 
-    def _resolve_collision(self, obstacles, gate_pos, direction):
+    def _resolve_collision(self, obstacles, gate_pos, direction, lengths=[0.25, 0.1, 0.25]):
         allowed_rot = [0, np.pi / 4, -np.pi / 4,  np.pi / 5, -np.pi / 5, np.pi / 8, -np.pi / 8]
-        lengths = [0.2, 0.1, 0.25]
         rot = gate_pos[3]
         for offset in allowed_rot:
             for length in lengths:
@@ -406,15 +406,15 @@ class Controller(BaseController):
                             gate_pos[2]]
                 for obstacle in obstacles:
                     for dim in range(0, 2):
-                        if obstacle[dim] - 0.25 < goal_pos[dim] < obstacle[dim] + 0.25:
+                        if obstacle[dim] - 0.22 < goal_pos[dim] < obstacle[dim] + 0.22:
                             blocked[dim] = True
                 if blocked != [True, True]:
                     return goal_pos
         #print("Error no valid position found")
-        return None
+        return gate_pos[0:3]
 
     def _recalc_trajectory(self, waypoints, iteration):
-        tck, u = interpolate.splprep([waypoints[:, 0], waypoints[:, 1], waypoints[:, 2]], s=0.1)
+        tck, u = interpolate.splprep([waypoints[:, 0], waypoints[:, 1], waypoints[:, 2]], s=0.05)
         self.waypoints = waypoints
         self.step = iteration - 1
         duration = self.goal_duration/(self._find_next_gate() + 1)
@@ -502,9 +502,9 @@ class Controller(BaseController):
             #waypoints.append([gates[2][0], gates[2][1] - 0.4, z_low])
             waypoints.append([gates[2][0], gates[2][1], gates[2][2]])
             #waypoints.append([gates[2][0], gates[2][1] + 0.1, z_low])
-            waypoints.append(self._resolve_collision(obstacles, gates[2], 1))
-            point = self._resolve_collision(obstacles, gates[2], 1)
-            point[2] = z_high + 0.2
+            waypoints.append(self._resolve_collision(obstacles, gates[2], 1, lengths=[0.35, 0.3, 0.4, 0.45]))
+            point = self._resolve_collision(obstacles, gates[2], 1, lengths=[0.35, 0.3, 0.4, 0.45])
+            point[2] = z_high + 0.1
             point[1] = point[1] + 0.3
             waypoints.append(point)
             #waypoints.append([gates[2][0], gates[2][1] + 0.2, z_high + 0.2])
