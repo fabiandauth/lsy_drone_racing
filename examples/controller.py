@@ -80,7 +80,7 @@ class Controller(BaseController):
         #########################
         # REPLACE THIS (START) ##
         #########################
-        self.VERBOSE = True
+        self.VERBOSE = False
         self.initial_info = initial_info
 
         self.start = initial_obs[0:4]
@@ -104,7 +104,7 @@ class Controller(BaseController):
         gates = self.NOMINAL_GATES
         z_low = initial_info["gate_dimensions"]["low"]["height"]
         z_high = initial_info["gate_dimensions"]["tall"]["height"]
-        waypoints.append([0.7, -0.5, z_low])
+        waypoints.append([1, 0, z_low])
         waypoints.append([gates[0][0] + 0.2, gates[0][1] + 0.1, z_low])
         waypoints.append([gates[0][0] + 0.1, gates[0][1], z_low])
         waypoints.append([gates[0][0] - 0.1, gates[0][1], z_low])
@@ -148,6 +148,7 @@ class Controller(BaseController):
 
         tck, u = interpolate.splprep([self.waypoints[:, 0], self.waypoints[:, 1], self.waypoints[:, 2]], s=0.1)
         duration = self.goal_duration
+
         t = np.linspace(0, 1, int(duration * self.CTRL_FREQ))
         self.ref_x, self.ref_y, self.ref_z = interpolate.splev(t, tck)
 
@@ -208,6 +209,7 @@ class Controller(BaseController):
         # REPLACE THIS (START) ##
         #########################
 
+        # Handcrafted solution for getting_stated scenario.
         pos = obs[0:3]
         self._check_if_gate_passed(pos)
 
