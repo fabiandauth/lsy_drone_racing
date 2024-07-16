@@ -33,7 +33,6 @@ from scipy import interpolate
 from lsy_drone_racing.command import Command
 from lsy_drone_racing.controller import BaseController
 from lsy_drone_racing.utils import draw_trajectory
-import pybullet as p
 
 
 class Controller(BaseController):
@@ -44,7 +43,7 @@ class Controller(BaseController):
         initial_obs: np.ndarray,
         initial_info: dict,
         buffer_size: int = 100,
-        verbose: bool = True,
+        verbose: bool = False,
     ):
         """Initialization of the controller.
 
@@ -81,7 +80,7 @@ class Controller(BaseController):
         #########################
         # REPLACE THIS (START) ##
         #########################
-        self.VERBOSE = True
+        self.VERBOSE = False
         self.initial_info = initial_info
 
         self.start = initial_obs[0:4]
@@ -93,7 +92,7 @@ class Controller(BaseController):
         self.updated_gates = [0, 0, 0, 0]
         self.updated_obstacles = [0, 0, 0, 0]
         self.passed_gates = [0, 0, 0, 0]
-        self.goal_duration = 10
+        self.goal_duration = 13
 
         # Example: Hard-code waypoints through the gates. Obviously this is a crude way of
         # completing the challenge that is highly susceptible to noise and does not generalize at
@@ -172,6 +171,7 @@ class Controller(BaseController):
         self._setpoint_land = False
         self._land = False
         self.step = 0
+        self.last_step = 0
         #########################
         # REPLACE THIS (END) ####
         #########################
@@ -218,26 +218,33 @@ class Controller(BaseController):
 
         if gate_updated:
             waypoints = self._regen_waypoints(self.gates, self.obstacles, pos, self.goal)
-            self._recalc_trajectory(waypoints, iteration, pos)
+            self._recalc_trajectory(waypoints, self.last_step)
+            self.last_step = 10
         if obstacle_update:
             if self._find_next_gate() < 1:
                 index, obstacle = self._check_collision([self.obstacles[0]], self.acc_x, self.acc_y, self.acc_z)
                 if index is not None:
                     self.waypoints[index, 0] = self.waypoints[index, 0] - 0.3
                     #print("avoid obstacle 1")
-                    self._recalc_trajectory(self.waypoints, 0, pos)
+                    self._recalc_trajectory(self.waypoints, 0)
 
 
-        step = iteration - self.step
+        #self.last_step = self.last_step - self.step
+
+        next_gate_index = self._find_next_gate()
+        if next_gate_index == None:
+            step = self.last_step + 3
+        else:
+            if next_gate_index == 0:
+                step = self._speed_control(pos, self.gates[next_gate_index], self.start, self.last_step)
+            else:
+                step = self._speed_control(pos, self.gates[next_gate_index], self.gates[next_gate_index - 1], self.last_step)
+        self.last_step = step
 
 
-
-        if step < len(self.ref_x):
-            offset = 0
-            target_pos = np.array([self.ref_x[step+offset], self.ref_y[step+offset], self.ref_z[step+offset]])
-            p.addUserDebugPoints([target_pos], pointSize=6, pointColorsRGB=[[0,1,0]])
-            target_pos = self._speed_control(target_pos, pos, factor=0.02)
-            p.addUserDebugPoints([target_pos], pointSize=3, pointColorsRGB=[[0,0,1]])
+        if step < len(self.acc_x):
+            #target_pos = np.array([self.ref_x[step], self.ref_y[step], self.ref_z[step]])
+            target_pos = np.array([self.acc_x[step], self.acc_y[step], self.acc_z[step]])
             target_vel = np.zeros(3)
             target_acc = np.zeros(3)
             target_yaw = 0.0
@@ -246,11 +253,11 @@ class Controller(BaseController):
             args = [target_pos, target_vel, target_acc, target_yaw, target_rpy_rates, ep_time]
         # Notify set point stop has to be called every time we transition from low-level
         # commands to high-level ones. Prepares for landing
-        elif step >= len(self.ref_x) and not self._setpoint_land:
+        elif step >= len(self.acc_x) and not self._setpoint_land:
             command_type = Command.NOTIFYSETPOINTSTOP
             args = []
             self._setpoint_land = True
-        elif step >= len(self.ref_x) and not self._land:
+        elif step >= len(self.acc_x) and not self._land:
             command_type = Command.LAND
             args = [0.0, 2.0]  # Height, duration
             self._land = True  # Send landing command only once
@@ -340,7 +347,7 @@ class Controller(BaseController):
 
     def _check_if_gate_passed(self, pos):
         for gate in range(0, len(self.gates[0])):
-            if np.allclose(pos, self.gates[gate][0:3], atol=0.1):
+            if np.allclose(pos, self.gates[gate][0:3], atol=0.13):
                 self.passed_gates[gate] = 1
 
     def _update_gate_parameter(self, obs):
@@ -348,11 +355,30 @@ class Controller(BaseController):
         update = False
         for i in range(12, 25, 4):
             if not np.array_equal(obs[i:i+4], self.gates[list_index]) and self.updated_gates[list_index] == 0:
+                #print(self.gates[list_index][0]- obs[i])
                 self.gates[list_index] = obs[i : i + 4]
                 self.updated_gates[list_index] = 1
                 update = True
+
             list_index += 1
         return update #updated gate parameter route recalculation necessary
+
+
+    def _speed_control(self, pos, next_gate, last_gate, last_waypoint):
+        distance_next_gate = np.linalg.norm(next_gate[0:3] - pos[0:3])
+        distance_last_gate = np.linalg.norm(last_gate[0:3] - pos[0:3])
+        #mid_point = distance_last_gate + distance_next_gate / 2
+        min_speed = 1.51
+        if distance_next_gate > distance_last_gate:
+            if distance_last_gate > 0.1:
+                next_waypoint = round(last_waypoint + min_speed + 2)
+            else:
+                next_waypoint = round(last_waypoint + min_speed + np.exp(1.9 * distance_last_gate) + 0.4)
+        else:
+            next_waypoint = round(last_waypoint + min_speed + 1)
+        return next_waypoint
+
+
 
     def _update_obstacle_parameter(self, obs):
         list_index = 0
@@ -368,13 +394,11 @@ class Controller(BaseController):
             list_index += 1
         return update     #updated obstacle parameter route recalculation necessary
 
-    def _resolve_collision(self, obstacles, gate_pos, direction):
-        allowed_rot = [0, np.pi / 5, -np.pi / 5, np.pi / 4, -np.pi / 4, np.pi / 8, -np.pi / 8]
-        lengths = [0.25, 0.2, 0.1]
+    def _resolve_collision(self, obstacles, gate_pos, direction, lengths=[0.25, 0.1, 0.25]):
+        allowed_rot = [0, np.pi / 4, -np.pi / 4,  np.pi / 5, -np.pi / 5, np.pi / 8, -np.pi / 8]
         rot = gate_pos[3]
-
-        for length in lengths:
-            for offset in allowed_rot:
+        for offset in allowed_rot:
+            for length in lengths:
                 blocked = [False, False]
 
                 delta_x_ = np.cos(rot + np.pi / 2 + offset)
@@ -384,29 +408,22 @@ class Controller(BaseController):
                             gate_pos[2]]
                 for obstacle in obstacles:
                     for dim in range(0, 2):
-                        if obstacle[dim] - 0.2 < goal_pos[dim] < obstacle[dim] + 0.2:
+                        if obstacle[dim] - 0.22 < goal_pos[dim] < obstacle[dim] + 0.22:
                             blocked[dim] = True
                 if blocked != [True, True]:
                     return goal_pos
         #print("Error no valid position found")
-        return None
+        return gate_pos[0:3]
 
-    def _recalc_trajectory(self, waypoints, iteration, pos):
-        tck, u = interpolate.splprep([waypoints[:, 0], waypoints[:, 1], waypoints[:, 2]], s=0.1)
+    def _recalc_trajectory(self, waypoints, iteration):
+        tck, u = interpolate.splprep([waypoints[:, 0], waypoints[:, 1], waypoints[:, 2]], s=0.05)
         self.waypoints = waypoints
         self.step = iteration - 1
         duration = self.goal_duration/(self._find_next_gate() + 1)
         t = np.linspace(0, 1, int(duration * self.CTRL_FREQ))
-        t_accurate = np.linspace(0, 1, 1000)
-        tmp_x, tmp_y, tmp_z = interpolate.splev(t, tck)
-        nearest_index = np.argmin(np.linalg.norm(np.array([tmp_x, tmp_y, tmp_z]).T - pos, axis=1))
-        self.ref_x = tmp_x[nearest_index:]
-        self.ref_y = tmp_y[nearest_index:]
-        self.ref_z = tmp_z[nearest_index:]
-        tmp_acc_x, tmp_acc_y, tmp_acc_z = interpolate.splev(t_accurate, tck)
-        self.acc_x = tmp_acc_x[nearest_index:]
-        self.acc_y = tmp_acc_y[nearest_index:]
-        self.acc_z = tmp_acc_z[nearest_index:]
+        t_accurate = np.linspace(0, 1, int(1000 / (self._find_next_gate() + 1)))
+        self.ref_x, self.ref_y, self.ref_z = interpolate.splev(t, tck)
+        self.acc_x, self.acc_y, self.acc_z = interpolate.splev(t_accurate, tck)
         assert max(self.ref_z) < 2.5, "Drone must stay below the ceiling"
 
         if self.VERBOSE:
@@ -437,20 +454,13 @@ class Controller(BaseController):
         waypoints = []
         waypoints.append(pos)
 
-        j = 1
-
         if next_gate_index < 1 and np.linalg.norm(pos[0:3] - self.start[0:3]) < 0.5:
             waypoints.append([self.initial_obs[0], self.initial_obs[1], 0.1])
             waypoints.append([self.initial_obs[0], self.initial_obs[1], 0.3])
-            waypoints.append([1, 0, z_low])
-            j += 1
+            waypoints.append([0.7, -0.5, z_low])
         #waypoints.append([1, 0, z_low])
 
         if next_gate_index< 1:
-            if j == 0:
-                waypoints.append([1, 0, z_low])
-                waypoints.append(pos)
-
             waypoints.append(self._resolve_collision(obstacles,gates[0], -1))
             waypoints.append([gates[0][0], gates[0][1], gates[0][2]])
             waypoints.append(self._resolve_collision(obstacles, gates[0], 1))
@@ -468,10 +478,15 @@ class Controller(BaseController):
                     (z_low + z_high) / 2,
                 ]
             )
-            j += 1
-
         if next_gate_index < 2:
-            if j == 0:
+            if np.linalg.norm(pos - gates[0][0:3]) < np.linalg.norm(pos - gates[1][0:3]):
+                waypoints.append(
+                    [
+                        (gates[0][0] + gates[1][0]) / 2 - 0.7,
+                        (gates[0][1] + gates[1][1]) / 2 - 0.45,
+                        (z_low + z_high) / 2,
+                    ]
+                )
                 waypoints.append(
                     [
                         (gates[0][0] + gates[1][0]) / 2 - 0.5,
@@ -479,33 +494,24 @@ class Controller(BaseController):
                         (z_low + z_high) / 2,
                     ]
                 )
-                waypoints.append(pos)
+
             waypoints.append([gates[1][0] - 0.3, gates[1][1] - 0.2, z_high])
             waypoints.append([gates[1][0], gates[1][1], gates[1][2]])
             waypoints.append([gates[1][0] + 0.2, gates[1][1] + 0.2, z_high])
-            j += 1
 
         if next_gate_index < 3:
-            if j == 0:
-                waypoints.append([gates[1][0] + 0.2, gates[1][1] + 0.2, z_high])
-                waypoints.append(pos)
             waypoints.append(self._resolve_collision(obstacles, gates[2], -1))
             #waypoints.append([gates[2][0], gates[2][1] - 0.4, z_low])
             waypoints.append([gates[2][0], gates[2][1], gates[2][2]])
             #waypoints.append([gates[2][0], gates[2][1] + 0.1, z_low])
-            waypoints.append(self._resolve_collision(obstacles, gates[2], 1))
-            point = self._resolve_collision(obstacles, gates[2], 1)
-            point[2] = z_high + 0.2
+            waypoints.append(self._resolve_collision(obstacles, gates[2], 1, lengths=[0.35, 0.3, 0.4, 0.45]))
+            point = self._resolve_collision(obstacles, gates[2], 1, lengths=[0.35, 0.3, 0.4, 0.45])
+            point[2] = z_high + 0.1
+            point[1] = point[1] + 0.3
             waypoints.append(point)
             #waypoints.append([gates[2][0], gates[2][1] + 0.2, z_high + 0.2])
-            j += 1
 
         if next_gate_index < 4:
-            if j == 0:
-                point = self._resolve_collision(obstacles, gates[2], 1)
-                point[2] = z_high + 0.2
-                waypoints.append(point)
-                waypoints.append(pos)
             waypoints.append([gates[3][0], gates[3][1] + 0.3, z_high+ 0.2])
             waypoints.append([gates[3][0], gates[3][1], gates[3][2]])
             waypoints.append([gates[3][0], gates[3][1] - 0.1, z_high + 0.05])
@@ -527,14 +533,3 @@ class Controller(BaseController):
         )
         waypoints = np.array(waypoints)
         return waypoints
-    
-    def _speed_control(self, ref, pos, factor):
-        # Calculate the direction vector from pos to ref
-        direction = ref - pos
-
-        distance = np.linalg.norm(pos - ref)
-
-        # Normalize the direction vector
-        direction /= np.linalg.norm(direction)
-
-        return ref + ((1/distance)* factor * direction)
