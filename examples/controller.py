@@ -374,7 +374,7 @@ class Controller(BaseController):
             if distance_last_gate > 0.1:
                 next_waypoint = round(last_waypoint + min_speed + 2)
             if distance_last_gate > 0.3:
-                next_waypoint = round(last_waypoint + min_speed + 3)
+                next_waypoint = round(last_waypoint + min_speed + 2)
             else:
                 next_waypoint = round(last_waypoint + min_speed + np.exp(1.9 * distance_last_gate) + 0.4)
         else:
