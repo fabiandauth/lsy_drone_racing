@@ -330,12 +330,14 @@ class Controller(BaseController):
             if distance_last_gate > 0.1:
                 next_waypoint = round(last_waypoint + min_speed + 2)
             if distance_last_gate > 0.3:
-                next_waypoint = round(last_waypoint + min_speed + 2)
+                next_waypoint = round(last_waypoint + min_speed + 3)
             else:
                 next_waypoint = round(last_waypoint + min_speed + np.exp(1.9 * distance_last_gate) + 0.4)
         else:
-
-            next_waypoint = round(last_waypoint + min_speed + 1)
+            if distance_next_gate > 0.5:
+                next_waypoint = round(last_waypoint + min_speed + 2)
+            else:
+                next_waypoint = round(last_waypoint + min_speed + 1)
         return next_waypoint
 
 
@@ -465,7 +467,7 @@ class Controller(BaseController):
 
             waypoints.append([gates[1][0] - 0.3, gates[1][1] - 0.2, z_high])
             waypoints.append([gates[1][0], gates[1][1], gates[1][2]])
-            waypoints.append([gates[1][0] + 0.2, gates[1][1] + 0.2, z_high])
+            waypoints.append([gates[1][0] + 0.2, gates[1][1] + 0.3, z_high])
             waypoints.append([
                         (gates[1][0] + gates[2][0]) / 2,
                         (gates[1][1] + gates[2][1]) / 2,
