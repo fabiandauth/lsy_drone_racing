@@ -98,52 +98,8 @@ class Controller(BaseController):
         # completing the challenge that is highly susceptible to noise and does not generalize at
         # all. It is meant solely as an example on how the drones can be controlled
 
-        waypoints = []
-        waypoints.append([self.initial_obs[0], self.initial_obs[1], 0.1])
-        waypoints.append([self.initial_obs[0], self.initial_obs[1], 0.3])
-        gates = self.NOMINAL_GATES
-        z_low = initial_info["gate_dimensions"]["low"]["height"]
-        z_high = initial_info["gate_dimensions"]["tall"]["height"]
-        waypoints.append([0.8, -0.5, z_low])
-        waypoints.append([gates[0][0] + 0.2, gates[0][1] + 0.1, z_low])
-        waypoints.append([gates[0][0] + 0.1, gates[0][1], z_low])
-        waypoints.append([gates[0][0] - 0.1, gates[0][1], z_low])
-        waypoints.append(
-            [
-                (gates[0][0] + gates[1][0]) / 2 - 0.7,
-                (gates[0][1] + gates[1][1]) / 2 - 0.3,
-                (z_low + z_high) / 2,
-            ]
-        )
-        waypoints.append(
-            [
-                (gates[0][0] + gates[1][0]) / 2 - 0.5,
-                (gates[0][1] + gates[1][1]) / 2 - 0.6,
-                (z_low + z_high) / 2,
-            ]
-        )
-        waypoints.append([gates[1][0] - 0.3, gates[1][1] - 0.2, z_high])
-        waypoints.append([gates[1][0] + 0.2, gates[1][1] + 0.2, z_high])
-        waypoints.append([gates[2][0], gates[2][1] - 0.4, z_low])
-        waypoints.append([gates[2][0], gates[2][1] + 0.2, z_low])
-        waypoints.append([gates[2][0], gates[2][1] + 0.2, z_high + 0.2])
-        waypoints.append([gates[3][0], gates[3][1] + 0.1, z_high])
-        waypoints.append([gates[3][0], gates[3][1] - 0.1, z_high + 0.1])
-        waypoints.append(
-            [
-                initial_info["x_reference"][0],
-                initial_info["x_reference"][2],
-                initial_info["x_reference"][4],
-            ]
-        )
-        waypoints.append(
-            [
-                initial_info["x_reference"][0],
-                initial_info["x_reference"][2] - 0.2,
-                initial_info["x_reference"][4],
-            ]
-        )
-        self.waypoints = np.array(waypoints)
+        waypoints = self._regen_waypoints(self.gates, self.obstacles, self.start[0:3], self.goal)
+        self._recalc_trajectory(waypoints, 0)
 
 
         tck, u = interpolate.splprep([self.waypoints[:, 0], self.waypoints[:, 1], self.waypoints[:, 2]], s=0.1)
@@ -521,8 +477,8 @@ class Controller(BaseController):
             #waypoints.append([gates[2][0], gates[2][1] - 0.4, z_low])
             waypoints.append([gates[2][0], gates[2][1], gates[2][2]])
             #waypoints.append([gates[2][0], gates[2][1] + 0.1, z_low])
-            waypoints.append(self._resolve_collision(obstacles, gates[2], 1, lengths=[0.4, 0.45], allowed_rot= [0, np.pi/5, -np.pi/5]))
-            point = self._resolve_collision(obstacles, gates[2], 1, lengths=[0.4, 0.45], allowed_rot=[0, np.pi/5, -np.pi/5])
+            waypoints.append(self._resolve_collision(obstacles, gates[2], 1, lengths=[0.4, 0.45], allowed_rot= [0, np.pi/6, -np.pi/6]))
+            point = self._resolve_collision(obstacles, gates[2], 1, lengths=[0.4, 0.45], allowed_rot=[0, np.pi/6, -np.pi/6])
             point[2] = z_high + 0.1
             point[1] = point[1] + 0.3
             waypoints.append(point)
