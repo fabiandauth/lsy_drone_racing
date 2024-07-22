@@ -296,6 +296,13 @@ class Controller(BaseController):
 
 
     def _find_next_gate(self):
+        """ Helper Function to find the next gate that has not been passed yet
+
+                        Returns
+                        ------
+                        gate index: integer
+                            gate index of the next gate in self.gates (None if all gates passed)
+        """
         for i in range(len(self.passed_gates)):
             if self.passed_gates[i] == 0:
                 return i
@@ -303,11 +310,32 @@ class Controller(BaseController):
         return None
 
     def _check_if_gate_passed(self, pos):
+        """ Updates the list of passed gates if the position of the drone is within 0.13 of the gate middle
+
+                        Parameters
+                        ----------
+                        pos : list
+                            current position of the drone
+
+        """
         for gate in range(0, len(self.gates[0])):
             if np.allclose(pos, self.gates[gate][0:3], atol=0.13):
                 self.passed_gates[gate] = 1
 
     def _update_gate_parameter(self, obs):
+        """ Updates the gate parameters if new observations are received
+
+                        Parameters
+                        ----------
+                        obs : list
+                            list of observations from the environment
+
+                        Returns
+                        ------
+                        update: Bool
+                            True : if an update to the gate positions has been made
+                            False : if no update has been made
+        """
         list_index = 0
         update = False
         for i in range(12, 25, 4):
@@ -322,6 +350,24 @@ class Controller(BaseController):
 
 
     def _speed_control(self, pos, next_gate, last_gate, last_waypoint):
+        """ Updates the gate parameters if new observations are received
+
+                                Parameters
+                                ----------
+                                pos : list[3]
+                                    current drone position
+                                next_gate : list
+                                    position of the next gate
+                                last_gate : list
+                                    position of the last gate
+                                last_waypoint : list[3]
+                                    last waypoint given to the controller
+
+                                Returns
+                                ------
+                                next_waypoint : list[3]
+                                    next_waypoint that can be given to the controller
+        """
         distance_next_gate = np.linalg.norm(next_gate[0:3] - pos[0:3])
         distance_last_gate = np.linalg.norm(last_gate[0:3] - pos[0:3])
         #mid_point = distance_last_gate + distance_next_gate / 2
@@ -341,6 +387,19 @@ class Controller(BaseController):
 
 
     def _update_obstacle_parameter(self, obs):
+        """ Updates the obstacle parameters if new obstacle positions are received
+
+                                Parameters
+                                ----------
+                                obs : list
+                                    list of observations from the environment
+
+                                Returns
+                                ------
+                                update: Bool
+                                    True : if an update to the obstacle (self.obstacles) positions has been made
+                                    False : if no update has been made
+        """
         list_index = 0
         update = False
         for i in range(32, 42, 3):
@@ -348,8 +407,6 @@ class Controller(BaseController):
                 self.obstacles[list_index] = obs[i : i + 3]
                 self.obstacles[list_index][2] = 0.5
                 self.updated_obstacles[list_index] = 1
-                #if self._check_if_on_path(self.obstacles[list_index]):
-                    #update = True
                 update = True
             list_index += 1
         return update     #updated obstacle parameter route recalculation necessary
@@ -360,13 +417,33 @@ class Controller(BaseController):
                            direction,
                            lengths=[0.25, 0.2],
                            allowed_rot=[0, np.pi / 5, -np.pi / 5]):
+        """ Finds the waypoints that maximizes the distance to a close obstacle based on
+            a set of length and rotational offsets
+
+                                Parameters
+                                ----------
+                                obstacles : 2D-list
+                                    list of observations from the environment
+                                gate_pos : list
+                                    position of the gate where a collision has to be resolved
+                                direction : int
+                                    -1 : back side of the gate
+                                    1  : front side of the gate
+                                lengths : list (optional)
+                                    array of allowed distances from the gate middle point
+                                allowed_rot : list (optinal)
+                                    array of allow rotational offsets from the gate normal in x-y
+
+                                Returns
+                                ------
+                                return_pos: list[3]
+                                    resulting position as list of [x,y,z]
+        """
         rot = gate_pos[3]
         best_distance = 0
         return_pos = None
         for length in lengths:
             for offset in allowed_rot:
-
-                blocked = [False, False]
 
                 delta_x_ = np.cos(rot + np.pi / 2 + offset)
                 delta_y_ = np.sin(rot + np.pi / 2 + offset)
@@ -374,9 +451,6 @@ class Controller(BaseController):
                 goal_pos = [gate_pos[0] + direction * delta_x_ * length, gate_pos[1] + direction * delta_y_ * length,
                             gate_pos[2]]
                 for obstacle in obstacles:
-                    #for dim in range(0, 2):
-                        #if obstacle[dim] - distance < goal_pos[dim] < obstacle[dim] + distance:
-                            #blocked[dim] = True
                     distance = np.linalg.norm(np.array(goal_pos[0:2]) - np.array(obstacle[0:2]))
                     if distance > best_distance and distance < 0.7:
                         best_distance = distance
@@ -384,6 +458,16 @@ class Controller(BaseController):
         return return_pos
 
     def _recalc_trajectory(self, waypoints, iteration):
+        """ Recalculates the spline of the given waypoints and
+            asserts the resulting points on the spline to self.ref(x,y,z) and self.acc_(x,y,z)
+
+                                Parameters
+                                ----------
+                                waypoints : list
+                                    list of observations from the environment
+                                iteration : list
+                                    iteration paramter of the last trajectory
+        """
         tck, u = interpolate.splprep([waypoints[:, 0], waypoints[:, 1], waypoints[:, 2]], s=0.05)
         self.waypoints = waypoints
         self.step = iteration - 1
@@ -399,6 +483,27 @@ class Controller(BaseController):
             draw_trajectory(self.initial_info, self.waypoints, self.ref_x, self.ref_y, self.ref_z)
 
     def _check_collision(self, obstacles, x, y, z):
+        """ Checks if a spline point (self.acc(x,y,z)) is within 0.4 m of an obstacle
+            and returns the closest waypoint together with the obstacle position
+
+                                Parameters
+                                ----------
+                                obstacles : 2D-array
+                                    list of obstacles
+                                x : double
+                                    x parameters of the spline points
+                                y : double
+                                    y parameters of the spline points
+                                z : double
+                                    z parameters of the spline points
+
+                                Returns
+                                ------
+                                collision_index: integer
+                                    waypoint index closest to the collision
+                                obstacle : list
+                                    obstacle position responsible for the collision
+            """
         for obstacle in obstacles:
             for i in range(len(self.ref_x)):
                 point = [x[i], y[i], z[i]]
@@ -409,12 +514,37 @@ class Controller(BaseController):
         return None, None
 
     def _get_collision_waypoint(self, obstacle, point):
-            distances = np.linalg.norm(self.waypoints - obstacle, axis=1)
-            return np.argmin(distances)
+        """ Helper Function to return the collision waypoint
+
+                                Parameters
+                                ----------
+                                obstacle : 2D-array
+                                    list of obstacles
+                                point: list[3]
+
+                                Returns
+                                ------
+                                collision_index
+        """
+        distances = np.linalg.norm(self.waypoints - obstacle, axis=1)
+        return np.argmin(distances)
 
 
     def _regen_waypoints(self, gates, obstacles, pos, goal):
+        """ Checks if a spline point (self.acc(x,y,z)) is within 0.4 m of an obstacle
+                    and returns the closest waypoint together with the obstacle position
 
+                                        Parameters
+                                        ----------
+                                        gates: 2D-array
+                                            list of gates
+                                        obstacles : 2D-array
+                                            list of obstacles
+                                        pos : list[x, y, z]
+                                            current drone position
+                                        goal : list[x, y, z]
+                                            drone position
+        """
         next_gate_index = self._find_next_gate()
         z_low = self.initial_info["gate_dimensions"]["low"]["height"]
         z_high = self.initial_info["gate_dimensions"]["tall"]["height"]
