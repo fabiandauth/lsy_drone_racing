@@ -7,7 +7,28 @@ import numpy as np
 # MIP Model
 ########################################################################################################################
 def initialize_model_variables(start, goal, gates, obstacles, steps):
-    #initialize model
+    """ Update the MIP-Model whit new parameters
+
+                    Parameters
+                    ----------
+                    model : pyomo model
+                        The model that has to be solved (pyomo model instance)
+                    start : list
+                        Starting coordinates of the drone
+                    goal : list
+                        Goal coordinates of the drone
+                    gates : 2D-list
+                        Gate positions of the drone racing environment
+                    obstacles : 2D-list
+                        Obstacle positions of the drone racing environments
+                    steps : list
+                        Time Steps for drone position at gate (3 per gate)
+
+                    Returns
+                    ------
+                    model: pyomo model instance
+                        Updated pyomo model instance
+                    """
     model = pyo.ConcreteModel()
 
     model.start = start
@@ -134,6 +155,20 @@ def objective_rule(model):
 
 
 def initialize_constraints(model, three_degrees_of_freedom=False):
+    """ Update the MIP-Model whit new parameters
+
+                    Parameters
+                    ----------
+                    model : pyomo model
+                        The model that has to be solved (pyomo model instance)
+                    three_degrees_of_freedom : Bool (optional)
+                        Specify if the drone can move along 3 axis or 1 per step
+
+                    Returns
+                    ------
+                    model: pyomo model instance
+                        Updated pyomo model instance
+                    """
     # start position and goal position constraint
     model.start_rule = pyo.Constraint(model.dim_range, rule=start_at_start)
     model.end_rule = pyo.Constraint(model.dim_range, rule=end_at_goal)
@@ -166,6 +201,30 @@ def initialize_constraints(model, three_degrees_of_freedom=False):
     return model
 
 def update_model(model, start, goal, gates, obstacles):
+    """ Update the MIP-Model whit new parameters
+
+                Parameters
+                ----------
+                model : pyomo model
+                    The model that has to be solved (pyomo model instance)
+                start : list
+                    Starting coordinates of the drone
+                goal : list
+                    Goal coordinates of the drone
+                gates : 2D-list
+                    Gate positions of the drone racing environment
+                obstacles : 2D-list
+                    Obstacle positions of the drone racing environments
+
+                Returns
+                ------
+                model: pyomo model instance
+                    Updated pyomo model instance
+
+                Errors
+                ------
+                Wrong parameter error returns False
+                """
     if len(gates) != len(model.gates) and len(obstacles) != len(model.obstacles):
         return False
 
@@ -174,11 +233,6 @@ def update_model(model, start, goal, gates, obstacles):
     model.obstacles = model.obstacles
     model.start = start
     model.goal = goal
-
-    #print('gates: \n', gates)
-    #print('obstacles: \n', obstacles)
-    #print('start: \n', start)
-    #print('goal: \n', goal)
 
     #update constraints that are necessary to update
     model.del_component('start_rule')
@@ -206,6 +260,18 @@ def update_model(model, start, goal, gates, obstacles):
 
 
 def run_optimizer(model):
+    """ Start the gurobi optimzer with predefined settings
+
+            Parameters
+            ----------
+            model : pyomo model
+                The model that has to be solved (pyomo model instance)
+
+            Returns
+            ------
+            waypoints: np.ndarray
+                The generated waypoints by solving the model
+            """
     optimizer = pyo.SolverFactory('gurobi')
     optimizer.options['SolutionLimit'] = 3
     optimizer.options['TimeLimit'] = 30
@@ -223,6 +289,18 @@ def run_optimizer(model):
 
 
 def asynchronous_optimization(model):
+    """ Start the gurobi optimzer in a seperate process
+
+                Parameters
+                ----------
+                model : pyomo model
+                    The model that has to be solved (pyomo model instance)
+
+                Returns
+                ------
+                process handler object:
+                    Process handler that can be used to poll if the process is completed
+                """
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     process_handler = executor.submit(run_optimizer, model)
     return process_handler
