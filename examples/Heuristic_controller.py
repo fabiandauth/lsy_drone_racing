@@ -301,29 +301,29 @@ class Controller(BaseController):
 
 
     def _speed_control(self, pos, next_gate, last_gate, last_waypoint):
-        """ Updates the gate parameters if new observations are received
+        """Updates the gate parameters if new observations are received.
 
-                        Parameters
-                        ----------
-                        pos : list[3]
-                            current drone position
-                        next_gate : list
-                            position of the next gate
-                        last_gate : list
-                            position of the last gate
-                        last_waypoint : list[3]
-                            last waypoint given to the controller
+        Parameters
+        ----------
+        pos : list[3]
+            Current drone position.
+        next_gate : list
+            Position of the next gate.
+        last_gate : list
+            Position of the last gate.
+        last_waypoint : list[3]
+            Last waypoint given to the controller.
 
-                        Returns
-                        ------
-                        next_waypoint : list[3]
-                            next_waypoint that can be given to the controller
+        Returns
+        ------
+        next_waypoint : list[3]
+            Next waypoint that can be given to the controller.
         """
         distance_next_gate = np.linalg.norm(next_gate[0:3] - pos[0:3])
         distance_last_gate = np.linalg.norm(last_gate[0:3] - pos[0:3])
         min_speed = 1.51
 
-        # adjust distance of next waypoint according to progress between gates
+        # Adjust distance of next waypoint according to progress between gates.
         if distance_next_gate > distance_last_gate:
             if distance_last_gate > 0.1:
                 next_waypoint = round(last_waypoint + min_speed + 2)
@@ -332,23 +332,23 @@ class Controller(BaseController):
             else:
                 next_waypoint = round(last_waypoint + min_speed + np.exp(1.9 * distance_last_gate) + 0.4)
         else:
-
             next_waypoint = round(last_waypoint + min_speed + 1)
+        
         return next_waypoint
 
     def _update_obstacle_parameter(self, obs):
-        """ Updates the obstacle parameters if new obstacle positions are received
+        """Updates the obstacle parameters if new obstacle positions are received.
 
-                        Parameters
-                        ----------
-                        obs : list
-                            list of observations from the environment
+        Parameters
+        ----------
+        obs : list
+            List of observations from the environment.
 
-                        Returns
-                        ------
-                        update: Bool
-                            True : if an update to the obstacle (self.obstacles) positions has been made
-                            False : if no update has been made
+        Returns
+        ------
+        update : bool
+            True if an update to the obstacle (self.obstacles) positions has been made,
+            False if no update has been made.
         """
         list_index = 0
         update = False
@@ -359,7 +359,7 @@ class Controller(BaseController):
                 self.updated_obstacles[list_index] = 1
                 update = True
             list_index += 1
-        return update     #updated obstacle parameter route recalculation necessary
+        return update  # updated obstacle parameter route recalculation necessary
 
     def _resolve_collision(self,
                            obstacles,
@@ -367,37 +367,36 @@ class Controller(BaseController):
                            direction,
                            lengths=[0.25, 0.2],
                            allowed_rot=[0, np.pi / 5, -np.pi / 5]):
-        """ Finds the waypoints that maximizes the distance to a close obstacle based on
-            a set of length and rotational offsets
+        """
+        Finds the waypoints that maximizes the distance to a close obstacle based on
+        a set of length and rotational offsets.
 
-                        Parameters
-                        ----------
-                        obstacles : 2D-list
-                            list of observations from the environment
-                        gate_pos : list
-                            position of the gate where a collision has to be resolved
-                        direction : int
-                            -1 : back side of the gate
-                            1  : front side of the gate
-                        lengths : list (optional)
-                            array of allowed distances from the gate middle point
-                        allowed_rot : list (optinal)
-                            array of allow rotational offsets from the gate normal in x-y
+        Parameters
+        ----------
+        obstacles : 2D-list
+            List of observations from the environment.
+        gate_pos : list
+            Position of the gate where a collision has to be resolved.
+        direction : int
+            -1 : back side of the gate
+            1  : front side of the gate
+        lengths : list (optional)
+            Array of allowed distances from the gate middle point.
+        allowed_rot : list (optional)
+            Array of allowed rotational offsets from the gate normal in x-y.
 
-                        Returns
-                        ------
-                        return_pos: list[3]
-                            resulting position as list of [x,y,z]
+        Returns
+        ------
+        return_pos : list[3]
+            Resulting position as a list of [x, y, z].
         """
         rot = gate_pos[3]
         best_distance = 0
         return_pos = None
         for length in lengths:
             for offset in allowed_rot:
-
                 delta_x_ = np.cos(rot + np.pi / 2 + offset)
                 delta_y_ = np.sin(rot + np.pi / 2 + offset)
-
                 goal_pos = [gate_pos[0] + direction * delta_x_ * length, gate_pos[1] + direction * delta_y_ * length,
                             gate_pos[2]]
                 for obstacle in obstacles:
@@ -408,15 +407,15 @@ class Controller(BaseController):
         return return_pos
 
     def _recalc_trajectory(self, waypoints):
-        """ Recalculates the spline of the given waypoints and
-            asserts the resulting points on the spline to self.ref(x,y,z) and self.acc_(x,y,z)
+        """Recalculates the spline of the given waypoints and
+        asserts the resulting points on the spline to self.ref(x,y,z) and self.acc_(x,y,z)
 
-                                Parameters
-                                ----------
-                                waypoints : list
-                                    list of observations from the environment
-                                iteration : list
-                                    iteration paramter of the last trajectory
+        Parameters
+        ----------
+        waypoints : list
+            List of observations from the environment
+        iteration : list
+            Iteration parameter of the last trajectory
         """
         tck, u = interpolate.splprep([waypoints[:, 0], waypoints[:, 1], waypoints[:, 2]], s=0.05)
         self.waypoints = waypoints
@@ -429,27 +428,28 @@ class Controller(BaseController):
             draw_trajectory(self.initial_info, self.waypoints, self.acc_x, self.acc_y, self.acc_z)
 
     def _check_collision(self, obstacles, x, y, z):
-        """ Checks if a spline point (self.acc(x,y,z)) is within 0.4 m of an obstacle
-            and returns the closest waypoint together with the obstacle position
+        """
+        Checks if a spline point (self.acc(x,y,z)) is within 0.4 m of an obstacle
+        and returns the closest waypoint together with the obstacle position
 
-                            Parameters
-                            ----------
-                            obstacles : 2D-array
-                                list of obstacles
-                            x : double
-                                x parameters of the spline points
-                            y : double
-                                y parameters of the spline points
-                            z : double
-                                z parameters of the spline points
+        Parameters
+        ----------
+        obstacles : 2D-array
+            List of obstacles
+        x : double
+            x parameters of the spline points
+        y : double
+            y parameters of the spline points
+        z : double
+            z parameters of the spline points
 
-                            Returns
-                            ------
-                            collision_index: integer
-                                waypoint index closest to the collision
-                            obstacle : list
-                                obstacle position responsible for the collision
-            """
+        Returns
+        ------
+        collision_index : integer
+            Waypoint index closest to the collision
+        obstacle : list
+            Obstacle position responsible for the collision
+        """
         for obstacle in obstacles:
             for i in range(len(self.acc_x)):
                 point = [x[i], y[i], z[i]]
@@ -460,35 +460,43 @@ class Controller(BaseController):
         return None, None
 
     def _get_collision_waypoint(self, obstacle):
-        """ Helper Function to return the collision waypoint
+        """
+        Helper function to return the collision waypoint.
 
-                                Parameters
-                                ----------
-                                obstacle : 2D-array
-                                    list of obstacles
+        Parameters
+        ----------
+        obstacle : 2D-array
+            List of obstacles.
 
-                                Returns
-                                ------
-                                collision_index
+        Returns
+        ------
+        collision_index : int
+            Index of the collision waypoint.
         """
         distances = np.linalg.norm(self.waypoints - obstacle, axis=1)
         return np.argmin(distances)
 
 
     def _regen_waypoints(self, gates, obstacles, pos, goal):
-        """ Checks if a spline point (self.acc(x,y,z)) is within 0.4 m of an obstacle
-            and returns the closest waypoint together with the obstacle position
+        """Checks if a spline point (self.acc(x,y,z)) is within 0.4 m of an obstacle
+        and returns the closest waypoint together with the obstacle position
 
-                                Parameters
-                                ----------
-                                gates: 2D-array
-                                    list of gates
-                                obstacles : 2D-array
-                                    list of obstacles
-                                pos : list[x, y, z]
-                                    current drone position
-                                goal : list[x, y, z]
-                                    drone position
+        Parameters
+        ----------
+        gates : 2D-array
+            List of gates
+        obstacles : 2D-array
+            List of obstacles
+        pos : list[x, y, z]
+            Current drone position
+        goal : list[x, y, z]
+            Drone position
+
+        Returns
+        -------
+        waypoints : numpy.ndarray
+            Array of waypoints
+
         """
         next_gate_index = self._find_next_gate()
         z_low = self.initial_info["gate_dimensions"]["low"]["height"]
@@ -503,8 +511,8 @@ class Controller(BaseController):
             waypoints.append([self.initial_obs[0], self.initial_obs[1], 0.3])
             waypoints.append([0.8, -0.5, z_low])
 
-        if next_gate_index< 1:
-            waypoints.append(self._resolve_collision(obstacles,gates[0], -1, allowed_rot=[0], lengths=[0.2, 0.1]))
+        if next_gate_index < 1:
+            waypoints.append(self._resolve_collision(obstacles, gates[0], -1, allowed_rot=[0], lengths=[0.2, 0.1]))
             waypoints.append([gates[0][0], gates[0][1], gates[0][2]])
             waypoints.append(self._resolve_collision(obstacles, gates[0], 1))
             waypoints.append(
@@ -541,26 +549,33 @@ class Controller(BaseController):
             waypoints.append([gates[1][0] - 0.3, gates[1][1] - 0.2, z_high])
             waypoints.append([gates[1][0], gates[1][1], gates[1][2]])
             waypoints.append([gates[1][0] + 0.2, gates[1][1] + 0.2, z_high])
-            waypoints.append([
-                        (gates[1][0] + gates[2][0]) / 2,
-                        (gates[1][1] + gates[2][1]) / 2,
-                        (z_low + z_high) / 2,
-                    ])
+            waypoints.append(
+                [
+                    (gates[1][0] + gates[2][0]) / 2,
+                    (gates[1][1] + gates[2][1]) / 2,
+                    (z_low + z_high) / 2,
+                ]
+            )
 
         if next_gate_index < 3:
             waypoints.append(self._resolve_collision(obstacles, gates[2], -1))
             waypoints.append([gates[2][0], gates[2][1], gates[2][2]])
-            waypoints.append(self._resolve_collision(obstacles, gates[2], 1, lengths=[0.4, 0.45], allowed_rot= [0, np.pi/6, -np.pi/6]))
-            point = self._resolve_collision(obstacles, gates[2], 1, lengths=[0.4, 0.45], allowed_rot=[0, np.pi/6, -np.pi/6])
+            waypoints.append(
+                self._resolve_collision(
+                    obstacles, gates[2], 1, lengths=[0.4, 0.45], allowed_rot=[0, np.pi / 6, -np.pi / 6]
+                )
+            )
+            point = self._resolve_collision(
+                obstacles, gates[2], 1, lengths=[0.4, 0.45], allowed_rot=[0, np.pi / 6, -np.pi / 6]
+            )
             point[2] = z_high + 0.1
             point[1] = point[1] + 0.3
             waypoints.append(point)
 
         if next_gate_index < 4:
-            waypoints.append([gates[3][0], gates[3][1] + 0.3, z_high+ 0.2])
+            waypoints.append([gates[3][0], gates[3][1] + 0.3, z_high + 0.2])
             waypoints.append([gates[3][0], gates[3][1], gates[3][2]])
             waypoints.append([gates[3][0], gates[3][1] - 0.1, z_high + 0.05])
-
 
         waypoints.append(
             [

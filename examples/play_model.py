@@ -7,8 +7,20 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 import os
 
 
-def play_trained_model(model_path: str, config_path: str, gui: bool = False,episodes_path: str = "episodes/"):
-    """Load a trained model and play it in the environment."""
+def play_trained_model(model_path: str, config_path: str, gui: bool = False, episodes_path: str = "episodes/"):
+    """
+    Load a trained model and play it in the environment.
+
+    Parameters:
+    - model_path (str): The path to the trained model file.
+    - config_path (str): The path to the configuration file for the environment.
+    - gui (bool, optional): Whether to enable the graphical user interface. Defaults to False.
+    - episodes_path (str, optional): The path to save the episodes. Defaults to "episodes/".
+
+    Returns:
+    - ret (float): The total reward accumulated during the episodes.
+    - episode_length (int): The length of each episode.
+    """
     # Create environment
     env = DummyVecEnv([lambda: create_race_env(Path(config_path), gui=False)])
     # Load the trained model
@@ -40,7 +52,7 @@ def play_trained_model(model_path: str, config_path: str, gui: bool = False,epis
     return ret, episode_length
 
 if __name__ == '__main__':
-    model_path = "trained_models/2024-06-03_10-00-58/model_10000_steps.zip"
+    model_path = ""
     episodes_path = os.path.dirname(model_path) + "/"
     config_path = "config/getting_started.yaml"
     ret, episode_length = play_trained_model(model_path, config_path, 100, episodes_path)

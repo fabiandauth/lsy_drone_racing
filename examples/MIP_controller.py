@@ -61,11 +61,6 @@ class Controller(BaseController):
     ):
         """Initialization of the controller.
 
-        INSTRUCTIONS:
-            The controller's constructor has access the initial state `initial_obs` and the a priori
-            infromation contained in dictionary `initial_info`. Use this method to initialize
-            constants, counters, pre-plan trajectories, etc.
-
         Args:
             initial_obs: The initial observation of the environment's state. Consists of
                 [drone_xyz_yaw, gates_xyz_yaw, gates_in_range, obstacles_xyz, obstacles_in_range,
@@ -148,11 +143,6 @@ class Controller(BaseController):
         info: dict | None = None,
     ) -> tuple[Command, list]:
         """Pick command sent to the quadrotor through a Crazyswarm/Crazyradio-like interface.
-
-        INSTRUCTIONS:
-            Re-implement this method to return the target position, velocity, acceleration,
-            attitude, and attitude rates to be sent from Crazyswarm to the Crazyflie using, e.g., a
-            `cmdFullState` call.
 
         Args:
             ep_time: Episode's elapsed time, in seconds.
@@ -362,18 +352,17 @@ class Controller(BaseController):
 
 
     def _update_gate_parameter(self, obs):
-        """ Updates the gate parameters if new observations are received
+        """Updates the gate parameters if new observations are received.
 
-                        Parameters
-                        ----------
-                        obs : list
-                            list of observations from the environment
+        Parameters
+        ----------
+        obs : list
+            List of observations from the environment.
 
-                        Returns
-                        ------
-                        update: Bool
-                            True : if an update to the gate positions has been made
-                            False : if no update has been made
+        Returns
+        ------
+        update : bool
+            True if an update to the gate positions has been made, False otherwise.
         """
         list_index = 0
         update = False
@@ -383,21 +372,21 @@ class Controller(BaseController):
                 self.updated_gates[list_index] = 1
                 update = True
             list_index += 1
-        return update #updated gate parameter route recalculation necessary
+        return update  # updated gate parameter route recalculation necessary
 
     def _update_obstacle_parameter(self, obs):
-        """ Updates the obstacle parameters if new obstacle positions are received
+        """Updates the obstacle parameters if new obstacle positions are received.
 
-                        Parameters
-                        ----------
-                        obs : list
-                            list of observations from the environment
+        Parameters
+        ----------
+        obs : list
+            List of observations from the environment.
 
-                        Returns
-                        ------
-                        update: Bool
-                            True : if an update to the obstacle (self.obstacles) positions has been made
-                            False : if no update has been made
+        Returns
+        ------
+        update : bool
+            True if an update to the obstacle (self.obstacles) positions has been made,
+            False if no update has been made.
         """
         list_index = 0
         update = False
@@ -408,56 +397,63 @@ class Controller(BaseController):
                 self.updated_obstacles[list_index] = 1
                 update = True
             list_index += 1
-        return update     #updated obstacle parameter route recalculation necessary
+        return update  # updated obstacle parameter route recalculation necessary
 
     def _check_if_gate_passed(self, pos):
-        """ Updates the list of passed gates if the position of the drone is within 0.13 of the gate middle
+        """
+        Updates the list of passed gates if the position of the drone is within 0.13 of the gate middle.
 
-                        Parameters
-                        ----------
-                        pos : list
-                            current position of the drone
-
+        Parameters
+        ----------
+        pos : list
+            Current position of the drone.
         """
         for gate in range(0, len(self.gates[0])):
             if np.allclose(pos, self.gates[gate][0:3], atol=0.05):
                 self.passed_gates[gate] = 1
 
     def _convert_to_routing_format(self, gates, obstacles):
-        """ Helper Function to bring gates and obstacles to a suitable format for the routing module
-                        Parameters
-                        ----------
-                        gates : 2D-array
-                            gate positions
-                        obstacles : 2D-array
-                            obstacle positions
+        """Helper function to bring gates and obstacles to a suitable format for the routing module.
+
+        Parameters
+        ----------
+        gates : 2D-array
+            Gate positions.
+        obstacles : 2D-array
+            Obstacle positions.
+
+        Returns
+        -------
+        tuple
+            A tuple containing the modified gates and obstacles arrays.
         """
         obstacles = np.append(obstacles, np.zeros((obstacles.shape[0], 3)), axis=1)
         gates = np.append(gates, np.zeros((gates.shape[0], 1)), axis=1)
-        gates = np.insert(gates,[3], np.zeros((gates.shape[0], 2)), axis=1)
+        gates = np.insert(gates, [3], np.zeros((gates.shape[0], 2)), axis=1)
         return gates, obstacles
 
     def _find_next_gate(self):
-        """ Helper Function to find the next gate that has not been passed yet
+        """Helper function to find the next gate that has not been passed yet.
 
-                        Returns
-                        ------
-                        gate index: integer
-                            gate index of the next gate in self.gates (None if all gates passed)
+        Returns
+        -------
+        gate index : int
+            The gate index of the next gate in `self.gates`. Returns `None` if all gates have been passed.
         """
         for i in range(len(self.passed_gates)):
             if self.passed_gates[i] == 0:
                 return i
-        print("all gates passed")
+        print("All gates have been passed.")
         return None
 
     def _start_trajectory_planner(self, pos):
-        """ Start the trajectory planner of the routing module based on the current position
-            and gate, obstacle information
+        """Start the trajectory planner of the routing module based on the current position and gate, obstacle information.
 
-                        Parameters
-                        ------
-                        pos: position[x, y, z]
+        Parameters:
+        pos (list): The current position [x, y, z].
+
+        Returns:
+        object: The result of the asynchronous optimization.
 
         """
         print("Starting new path calculation")
@@ -469,7 +465,7 @@ class Controller(BaseController):
         elif self.passed_gates == [1, 1, 1, 0]:
             goal = self.goal
         else:
-            goal = (gates_array[next_gate_index + 1, 0:3] + gates_array[next_gate_index + 2, 0:3])/2
+            goal = (gates_array[next_gate_index + 1, 0:3] + gates_array[next_gate_index + 2, 0:3]) / 2
         if next_gate_index < 3:
             gates_array = gates_array[next_gate_index:next_gate_index + 2, :]
         else:
@@ -483,25 +479,30 @@ class Controller(BaseController):
         for obstacle in obstacles_array:
             urdf_path = Path(self.initial_info["urdf_dir"]) / "sphere.urdf"
             p.loadURDF(
-            str(urdf_path),
-        [obstacle[0], obstacle[1], obstacle[2]],
-        p.getQuaternionFromEuler([0, 0, 0]),
-        physicsClientId=self.initial_info["pyb_client"],
-        )
-
+                str(urdf_path),
+                [obstacle[0], obstacle[1], obstacle[2]],
+                p.getQuaternionFromEuler([0, 0, 0]),
+                physicsClientId=self.initial_info["pyb_client"],
+            )
 
         self.model = update_model(self.model, start=pos, goal=goal, gates=gates_array, obstacles=obstacles_array)
         return asynchronous_optimization(self.model)
 
 
     def _interpolate_waypoints(self, waypoints, iteration):
-        """ Start the trajectory planner of the routing module based on the current position
-            and gate, obstacle information
+        """Start the trajectory planner of the routing module based on the current position
+        and gate, obstacle information.
 
-                        Parameters
-                        ------
-                        waypoints : position[x, y, z]
-                        iteration: current iteration
+        Parameters
+        ----------
+        waypoints : numpy.ndarray
+            Array of waypoints with shape (n, 3) representing the x, y, z coordinates.
+        iteration : int
+            Current iteration.
+
+        Returns
+        -------
+        None
         """
         # Separate the x, y, z coordinates
         x = waypoints[:, 0]
@@ -550,27 +551,27 @@ class Controller(BaseController):
 
 
     def _resolve_collision(self, gates, obstacles, gate_pos, rot, direction):
-        """ Finds the waypoints that maximizes the distance to a close obstacle based on
-            a set of length and rotational offsets
+        """Finds the waypoints that maximizes the distance to a close obstacle based on
+        a set of length and rotational offsets.
 
-                        Parameters
-                        ----------
-                        obstacles : 2D-list
-                            list of observations from the environment
-                        gate_pos : list
-                            position of the gate where a collision has to be resolved
-                        direction : int
-                            -1 : back side of the gate
-                            1  : front side of the gate
-                        lengths : list (optional)
-                            array of allowed distances from the gate middle point
-                        allowed_rot : list (optinal)
-                            array of allow rotational offsets from the gate normal in x-y
+        Parameters
+        ----------
+        gates : list
+            List of waypoints representing the gates.
+        obstacles : list
+            List of observations from the environment.
+        gate_pos : list
+            Position of the gate where a collision has to be resolved.
+        rot : float
+            Rotation angle.
+        direction : int
+            -1: Back side of the gate.
+            1: Front side of the gate.
 
-                        Returns
-                        ------
-                        return_pos: list[3]
-                            resulting position as list of [x,y,z]
+        Returns
+        ------
+        gates : list
+            Updated list of waypoints representing the gates.
         """
         allowed_rot = [0, np.pi / 5, -np.pi / 5, np.pi / 4, -np.pi / 4, np.pi / 8, -np.pi / 8]
         lengths = [0.5, 0.4, 0.3, 0.2, 0.1]
@@ -591,13 +592,21 @@ class Controller(BaseController):
                 if blocked != [True, True]:
                     gates.append(goal_pos)
                     return gates
-        print("Error no valid position found")
+        print("Error: No valid position found")
         gates.append(gate_pos)
         return gates
 
 
     def _env_preprocessing(self, gate_list, obstacles):
-        """ Preprocessing Function to generate obstacles, gates and step points for the MIP routing Module
+        """Preprocessing Function to generate obstacles, gates, and step points for the MIP routing Module.
+
+        Args:
+            gate_list (list): A list of gate coordinates.
+            obstacles (list): A list of obstacle coordinates.
+
+        Returns:
+            tuple: A tuple containing the generated gates, obstacles, and step points.
+
         """
         gates = []
         gate_frames = []
@@ -626,7 +635,15 @@ class Controller(BaseController):
         return gates, obstacles, steps
 
     def _gen_obstacle_points(self, gate_list, obstacles):
-        """ Preprocessing Function to generate obstacles points for the MIP routing Module
+        """Preprocessing Function to generate obstacle points for the MIP routing Module.
+
+        Args:
+            gate_list (list): List of gate coordinates.
+            obstacles (list): List of existing obstacles.
+
+        Returns:
+            list: Updated list of obstacles including gate frames.
+
         """
         gate_frames = []
 
@@ -645,7 +662,19 @@ class Controller(BaseController):
         return obstacles
 
     def _gen_gate_points(self, gate_list, obstacles):
-        """ Preprocessing Function to generate gate points for the MIP routing Module
+        """
+        
+        Preprocessing Function to generate gate points for the MIP routing Module.
+
+        Args:
+            gate_list (list): A list of gate coordinates.
+            obstacles (list): A list of obstacle coordinates.
+
+        Returns:
+            tuple: A tuple containing two lists - `gates` and `steps`.
+                - `gates` (list): A list of gate coordinates after resolving collisions.
+                - `steps` (list): A list of step points for each gate.
+
         """
         gates = []
         for i in range(len(gate_list)):

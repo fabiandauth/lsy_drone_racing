@@ -15,7 +15,6 @@ from pathlib import Path
 import fire
 from safe_control_gym.utils.registration import make
 from stable_baselines3 import PPO
-from sb3_contrib import RecurrentPPO
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, EvalCallback
 
@@ -87,10 +86,8 @@ def main(config: str = "config/getting_started.yaml", gui: bool = False):
 
     callback = CallbackList([checkpoint_callback, eval_callback])
 
-    # for tensorboard logging start tensorboard with the following command in a seperate terminal:
-    # tensorboard --logdir trained_models/logs
 
-    model = RecurrentPPO("MlpLstmPolicy", 
+    model = PPO("MlpLstmPolicy", 
                 env, verbose=1,
                 learning_rate=3e-5,
                 n_steps=n_steps,
@@ -106,31 +103,6 @@ def main(config: str = "config/getting_started.yaml", gui: bool = False):
     )
 
     model.save(save_path / f"model.zip")
-
-    # Get the observations from the environment
-    obs_list = []
-    vec_env = model.get_env()
-
-    x = vec_env.reset()
-
-    process_observation(x, True)
-
-    done = False
-
-    ret = 0.
-    episode_length = 0
-    while not done:
-        action, *_ = model.predict(x)
-        x, r, done ,info = vec_env.step(action)
-        ret += r
-        episode_length += 1
-        obs_list.append(process_observation(x, False))
-
-    save_observations(obs_list, save_path, current_datetime)
-
-    print(save_path)
-    
-    
 
 
 if __name__ == "__main__":
