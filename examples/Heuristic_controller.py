@@ -322,6 +322,8 @@ class Controller(BaseController):
         distance_next_gate = np.linalg.norm(next_gate[0:3] - pos[0:3])
         distance_last_gate = np.linalg.norm(last_gate[0:3] - pos[0:3])
         min_speed = 1.51
+
+        # adjust distance of next waypoint according to progress between gates
         if distance_next_gate > distance_last_gate:
             if distance_last_gate > 0.1:
                 next_waypoint = round(last_waypoint + min_speed + 2)
@@ -333,8 +335,6 @@ class Controller(BaseController):
 
             next_waypoint = round(last_waypoint + min_speed + 1)
         return next_waypoint
-
-
 
     def _update_obstacle_parameter(self, obs):
         """ Updates the obstacle parameters if new obstacle positions are received
@@ -455,18 +455,17 @@ class Controller(BaseController):
                 point = [x[i], y[i], z[i]]
                 if np.linalg.norm(np.array(point[0:2]) - np.array(obstacle[0:2])) < 0.4:
                     if point[2] < 1.05:
-                        collision_index = self._get_collision_waypoint(obstacle, point)
+                        collision_index = self._get_collision_waypoint(obstacle)
                         return collision_index, obstacle
         return None, None
 
-    def _get_collision_waypoint(self, obstacle, point):
+    def _get_collision_waypoint(self, obstacle):
         """ Helper Function to return the collision waypoint
 
                                 Parameters
                                 ----------
                                 obstacle : 2D-array
                                     list of obstacles
-                                point: list[3]
 
                                 Returns
                                 ------
@@ -498,6 +497,7 @@ class Controller(BaseController):
         waypoints = []
         waypoints.append(pos)
 
+        # append the waypoints according to gate progress
         if next_gate_index < 1 and np.linalg.norm(pos[0:3] - self.start[0:3]) < 0.5:
             waypoints.append([self.initial_obs[0], self.initial_obs[1], 0.1])
             waypoints.append([self.initial_obs[0], self.initial_obs[1], 0.3])
@@ -555,7 +555,6 @@ class Controller(BaseController):
             point[2] = z_high + 0.1
             point[1] = point[1] + 0.3
             waypoints.append(point)
-            #waypoints.append([gates[2][0], gates[2][1] + 0.2, z_high + 0.2])
 
         if next_gate_index < 4:
             waypoints.append([gates[3][0], gates[3][1] + 0.3, z_high+ 0.2])
