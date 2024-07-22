@@ -101,9 +101,9 @@ class Controller(BaseController):
         self.goal = [0, -1.5, 0.5]
         self.gates =list([initial_obs[12:12+4], initial_obs[16:16+4], initial_obs[20:20+4], initial_obs[24:24+4]])
         self.obstacles = list([initial_obs[32:32+3], initial_obs[35:35+3], initial_obs[38:38+3], initial_obs[41:41+3]])
-
         for i in range(len(self.obstacles)):
             self.obstacles[i][2] = 0.5
+
         self.gates_in_range = initial_obs[28:28+4]
         self.gate_id = initial_obs[-1]
         self.obstacles_in_range = initial_obs[44:44+4]
@@ -130,28 +130,8 @@ class Controller(BaseController):
         self.model = initialize_model_variables(self.start, self.goal, gates_array, obstacles_array, steps)
         self.model = initialize_constraints(self.model, three_degrees_of_freedom=False)
         self.process_handler = None
-        #waypoints = run_optimizer(self.model)
-        #print(waypoints)
         waypoints = np.loadtxt("working_waypoints.txt").transpose()
         self._interpolate_waypoints(waypoints, 0)
-
-        # Example: Hard-code waypoints through the gates. Obviously this is a crude way of
-        # completing the challenge that is highly susceptible to noise and does not generalize at
-        # all. It is meant solely as an example on how the drones can be controlled
-        #waypoints = np.loadtxt("working_waypoints.txt").transpose()
-        #waypoints = np.unique(waypoints, axis=0)
-        #tck, u = interpolate.splprep([waypoints[:, 0], waypoints[:, 1], waypoints[:, 2]], s=0.1)
-        #self.waypoints = waypoints
-        duration = 10
-        #t = np.linspace(0, 1, int(duration * self.CTRL_FREQ))
-        #self.ref_x, self.ref_y, self.ref_z = interpolate.splev(t, tck)
-        #assert max(self.ref_z) < 2.5, "Drone must stay below the ceiling"
-
-        #if self.VERBOSE:
-            #Draw the trajectory on PyBullet's GUI.
-            #draw_trajectory(initial_info, self.waypoints, self.ref_x, self.ref_y, self.ref_z)
-            #pass
-
         self._take_off = False
         self._setpoint_land = False
         self._land = False
@@ -192,27 +172,12 @@ class Controller(BaseController):
         # REPLACE THIS (START) ##
         #########################
 
-        # Handcrafted solution for getting_stated scenario.
-        #print(obs)
-
         pos = obs[0:3]
         self._check_if_gate_passed(pos)
 
         gate_update = self._update_gate_parameter(obs)
         obstacle_update = self._update_obstacle_parameter(obs)
-        #print(obstacle_update)
 
-        #if gate_update or obstacle_update:
-            #if self.trajectory_planner_active == False:
-                #print(obs)
-                #self.process_handler = self._start_trajectory_planner(pos)
-
-        #if self.trajectory_planner_active == True:
-            #if self.process_handler.done():
-                #self.trajectory_planner_active = False
-                # calculate new waypoints
-                #waypoints = self.process_handler.result()
-                #self._interpolate_waypoints(waypoints, iteration)
         step = iteration - self.step
 
         if gate_update or obstacle_update:
@@ -301,10 +266,7 @@ class Controller(BaseController):
             args = [target_pos, target_vel, target_acc, target_yaw, target_rpy_rates, ep_time]
         else:
             if ep_time > 0 and step < len(self.ref_x):
-                #last_set_pos = [self.ref_x[step-1], self.ref_y[step-1], self.ref_z[step-1]]
                 target_pos = np.array([self.ref_x[step], self.ref_y[step], self.ref_z[step]])
-                #offset = self._offset_calculation(pos, last_set_pos, target_pos)
-                #target_pos = target_pos +  offset
                 target_vel = np.zeros(3)
                 target_acc = np.zeros(3)
                 target_yaw = 0.0
@@ -398,12 +360,21 @@ class Controller(BaseController):
         # REPLACE THIS (END) ####
         #########################
 
-    def _offset_calculation(self, obs, set_last, set_now):
-        offset_vec = np.array([set_last[0]- obs[0], set_last[1] - obs[1], set_last[2]- obs[2]])
-        total_offset = np.dot(offset_vec, offset_vec)
-        return offset_vec * total_offset * self.OFFSET_CORRECTION_FACTOR
 
     def _update_gate_parameter(self, obs):
+        """ Updates the gate parameters if new observations are received
+
+                        Parameters
+                        ----------
+                        obs : list
+                            list of observations from the environment
+
+                        Returns
+                        ------
+                        update: Bool
+                            True : if an update to the gate positions has been made
+                            False : if no update has been made
+        """
         list_index = 0
         update = False
         for i in range(12, 25, 4):
@@ -415,6 +386,19 @@ class Controller(BaseController):
         return update #updated gate parameter route recalculation necessary
 
     def _update_obstacle_parameter(self, obs):
+        """ Updates the obstacle parameters if new obstacle positions are received
+
+                        Parameters
+                        ----------
+                        obs : list
+                            list of observations from the environment
+
+                        Returns
+                        ------
+                        update: Bool
+                            True : if an update to the obstacle (self.obstacles) positions has been made
+                            False : if no update has been made
+        """
         list_index = 0
         update = False
         for i in range(32, 42, 3):
@@ -422,27 +406,45 @@ class Controller(BaseController):
                 self.obstacles[list_index] = obs[i : i + 3]
                 self.obstacles[list_index][2] = 0.5
                 self.updated_obstacles[list_index] = 1
-                if self._check_if_on_path(self.obstacles[list_index]):
-                    update = True
-                #update = True
+                update = True
             list_index += 1
         return update     #updated obstacle parameter route recalculation necessary
 
     def _check_if_gate_passed(self, pos):
+        """ Updates the list of passed gates if the position of the drone is within 0.13 of the gate middle
+
+                        Parameters
+                        ----------
+                        pos : list
+                            current position of the drone
+
+        """
         for gate in range(0, len(self.gates[0])):
             if np.allclose(pos, self.gates[gate][0:3], atol=0.05):
                 self.passed_gates[gate] = 1
 
     def _convert_to_routing_format(self, gates, obstacles):
-        #for i in range(len(self.passed_gates)):
-            #if self.passed_gates[i] == 1:
-                #gates = np.delete(gates, i, axis=0)
+        """ Helper Function to bring gates and obstacles to a suitable format for the routing module
+                        Parameters
+                        ----------
+                        gates : 2D-array
+                            gate positions
+                        obstacles : 2D-array
+                            obstacle positions
+        """
         obstacles = np.append(obstacles, np.zeros((obstacles.shape[0], 3)), axis=1)
         gates = np.append(gates, np.zeros((gates.shape[0], 1)), axis=1)
         gates = np.insert(gates,[3], np.zeros((gates.shape[0], 2)), axis=1)
         return gates, obstacles
 
     def _find_next_gate(self):
+        """ Helper Function to find the next gate that has not been passed yet
+
+                        Returns
+                        ------
+                        gate index: integer
+                            gate index of the next gate in self.gates (None if all gates passed)
+        """
         for i in range(len(self.passed_gates)):
             if self.passed_gates[i] == 0:
                 return i
@@ -450,6 +452,14 @@ class Controller(BaseController):
         return None
 
     def _start_trajectory_planner(self, pos):
+        """ Start the trajectory planner of the routing module based on the current position
+            and gate, obstacle information
+
+                        Parameters
+                        ------
+                        pos: position[x, y, z]
+
+        """
         print("Starting new path calculation")
         self.trajectory_planner_active = True
         gates_array, obstacles_array = self._convert_to_routing_format(np.array(self.gates), np.array(self.obstacles))
@@ -485,6 +495,14 @@ class Controller(BaseController):
 
 
     def _interpolate_waypoints(self, waypoints, iteration):
+        """ Start the trajectory planner of the routing module based on the current position
+            and gate, obstacle information
+
+                        Parameters
+                        ------
+                        waypoints : position[x, y, z]
+                        iteration: current iteration
+        """
         # Separate the x, y, z coordinates
         x = waypoints[:, 0]
         y = waypoints[:, 1]
@@ -528,11 +546,32 @@ class Controller(BaseController):
         y_interpolated = interp_y(t)
         z_interpolated = interp_z(t)
         self.ref_x, self.ref_y, self.ref_z = x_interpolated, y_interpolated, z_interpolated
-        #self.ref_x, self.ref_y, self.ref_z = waypoints[:,0], waypoints[:, 1], waypoints[:, 2]
         self.step = iteration
-        #draw_trajectory(self.initial_info, self.waypoints, self.ref_x, self.ref_y, self.ref_z)
+
 
     def _resolve_collision(self, gates, obstacles, gate_pos, rot, direction):
+        """ Finds the waypoints that maximizes the distance to a close obstacle based on
+            a set of length and rotational offsets
+
+                        Parameters
+                        ----------
+                        obstacles : 2D-list
+                            list of observations from the environment
+                        gate_pos : list
+                            position of the gate where a collision has to be resolved
+                        direction : int
+                            -1 : back side of the gate
+                            1  : front side of the gate
+                        lengths : list (optional)
+                            array of allowed distances from the gate middle point
+                        allowed_rot : list (optinal)
+                            array of allow rotational offsets from the gate normal in x-y
+
+                        Returns
+                        ------
+                        return_pos: list[3]
+                            resulting position as list of [x,y,z]
+        """
         allowed_rot = [0, np.pi / 5, -np.pi / 5, np.pi / 4, -np.pi / 4, np.pi / 8, -np.pi / 8]
         lengths = [0.5, 0.4, 0.3, 0.2, 0.1]
 
@@ -556,14 +595,10 @@ class Controller(BaseController):
         gates.append(gate_pos)
         return gates
 
-    def _check_if_on_path(self, obstacle):
-        obstacle = np.array(obstacle[0:2])
-        for i in range(np.shape(self.waypoints)[0]):
-            if np.linalg.norm(self.waypoints[i, 0:2] - obstacle) < 0.2 * np.sqrt(2):
-                return True
-        return False
 
     def _env_preprocessing(self, gate_list, obstacles):
+        """ Preprocessing Function to generate obstacles, gates and step points for the MIP routing Module
+        """
         gates = []
         gate_frames = []
         # Add gate frames as obstacles and append points before gate and after gate as waypoints that have to be passed
@@ -584,7 +619,6 @@ class Controller(BaseController):
         steps = []
         for i in range(len(gate_list)):
             step_points = [(i + 1) * 40 - 10, (i + 1) * 40, (i + 1) * 40 + 10]
-            #step_points = [(i+1)*50]
             steps = steps + step_points
 
         obstacles = list(obstacles) + list(gate_frames)
@@ -592,6 +626,8 @@ class Controller(BaseController):
         return gates, obstacles, steps
 
     def _gen_obstacle_points(self, gate_list, obstacles):
+        """ Preprocessing Function to generate obstacles points for the MIP routing Module
+        """
         gate_frames = []
 
         for i in range(len(gate_list)):
@@ -609,6 +645,8 @@ class Controller(BaseController):
         return obstacles
 
     def _gen_gate_points(self, gate_list, obstacles):
+        """ Preprocessing Function to generate gate points for the MIP routing Module
+        """
         gates = []
         for i in range(len(gate_list)):
             rot = gate_list[i][5]
@@ -620,7 +658,6 @@ class Controller(BaseController):
         steps = []
         for i in range(len(gate_list)):
             step_points = [(i + 1) * 40 - 10, (i + 1) * 40, (i + 1) * 40 + 10]
-            # step_points = [(i+1)*50]
             steps = steps + step_points
         return gates, steps
 
