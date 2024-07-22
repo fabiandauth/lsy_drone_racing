@@ -96,7 +96,7 @@ class Controller(BaseController):
 
         # calculate the trajectory
         waypoints = self._regen_waypoints(self.gates, self.obstacles, self.start[0:3], self.goal)
-        self._recalc_trajectory(waypoints, 1)
+        self._recalc_trajectory(waypoints)
 
         if self.VERBOSE:
             # Draw the trajectory on PyBullet's GUI.
@@ -148,14 +148,14 @@ class Controller(BaseController):
         # process obstacle and gate updates
         if gate_updated:
             waypoints = self._regen_waypoints(self.gates, self.obstacles, pos, self.goal)
-            self._recalc_trajectory(waypoints, self.last_step)
+            self._recalc_trajectory(waypoints)
             self.last_step = 14
         if obstacle_update:
             if self._find_next_gate() < 1:
                 index, obstacle = self._check_collision([self.obstacles[0]], self.acc_x, self.acc_y, self.acc_z)
                 if index is not None:
                     self.waypoints[index, 0] = self.waypoints[index, 0] - 0.23
-                    self._recalc_trajectory(self.waypoints, 0)
+                    self._recalc_trajectory(self.waypoints)
                     self.last_step = self.last_step - 10
 
 
@@ -407,7 +407,7 @@ class Controller(BaseController):
                         return_pos = goal_pos
         return return_pos
 
-    def _recalc_trajectory(self, waypoints, iteration):
+    def _recalc_trajectory(self, waypoints):
         """ Recalculates the spline of the given waypoints and
             asserts the resulting points on the spline to self.ref(x,y,z) and self.acc_(x,y,z)
 
@@ -420,7 +420,6 @@ class Controller(BaseController):
         """
         tck, u = interpolate.splprep([waypoints[:, 0], waypoints[:, 1], waypoints[:, 2]], s=0.05)
         self.waypoints = waypoints
-        self.step = iteration - 1
         t_accurate = np.linspace(0, 1, int(1000 / (self._find_next_gate() + 1)))
         self.acc_x, self.acc_y, self.acc_z = interpolate.splev(t_accurate, tck)
         assert max(self.acc_z) < 2.5, "Drone must stay below the ceiling"
