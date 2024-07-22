@@ -23,8 +23,8 @@ def initialize_model_variables(start, goal, gates, obstacles, steps):
     model.M = 10000
     model.dim = 3
     model.gate_width = [0.21, 0.21, 0.3]
-    model.obstacle_width = [0.35, 0.35, 0.65]
-    model.obstacle_top = [0.25, 0.25, 0.2]
+    model.obstacle_width = [0.3, 0.3, 0.65]
+    model.obstacle_top = [0.25, 0.25, 0.21]
     model.upper_constraints = [3, 3, 2]
     model.lower_constraints = [-3, -3, 0]
 
@@ -98,7 +98,7 @@ def avoid_objects_5(model, object, step):
     for dim in range(0, 3):
         for var in range(0, 2):
             sum += model.bobject[dim, object, var, step]
-    return 5 >= sum
+    return 4 >= sum
 
 def fly_through_gates_easy(model, dim, gate):
     return model.x[dim, model.steps[gate]] == model.gates[gate][dim]
@@ -122,7 +122,7 @@ def length_rule_3(model, step):
     return  model.length[step] >= 0.0001
 
 def length_rule_4(model, step):
-    return  model.length[step] <= 0.3
+    return  model.length[step] <= 0.2
 
 def objective_rule(model):
     sum = 0
@@ -208,7 +208,7 @@ def update_model(model, start, goal, gates, obstacles):
 def run_optimizer(model):
     optimizer = pyo.SolverFactory('gurobi')
     optimizer.options['SolutionLimit'] = 3
-    optimizer.options['TimeLimit'] = 15
+    optimizer.options['TimeLimit'] = 30
     optimizer.options['ResultFile'] = 'model.ilp'
 
     print("Calling Gurobi Optimizer to solve optimization problem...\n")

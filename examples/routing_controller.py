@@ -247,6 +247,7 @@ class Controller(BaseController):
                     physicsClientId=self.initial_info["pyb_client"],
                 )
             start = np.array([self.ref_x[step], self.ref_y[step], self.ref_z[step]])
+            print(obstacles_array)
             self.model = update_model(self.model, start=start, goal=goal, gates=gates_array, obstacles=obstacles_array)
             waypoints = run_optimizer(self.model)
             self._interpolate_waypoints(waypoints, iteration)
@@ -529,7 +530,7 @@ class Controller(BaseController):
         self.ref_x, self.ref_y, self.ref_z = x_interpolated, y_interpolated, z_interpolated
         #self.ref_x, self.ref_y, self.ref_z = waypoints[:,0], waypoints[:, 1], waypoints[:, 2]
         self.step = iteration
-        draw_trajectory(self.initial_info, self.waypoints, self.ref_x, self.ref_y, self.ref_z)
+        #draw_trajectory(self.initial_info, self.waypoints, self.ref_x, self.ref_y, self.ref_z)
 
     def _resolve_collision(self, gates, obstacles, gate_pos, rot, direction):
         allowed_rot = [0, np.pi / 5, -np.pi / 5, np.pi / 4, -np.pi / 4, np.pi / 8, -np.pi / 8]
@@ -582,29 +583,13 @@ class Controller(BaseController):
 
         steps = []
         for i in range(len(gate_list)):
-            step_points = [(i + 1) * 30 - 10, (i + 1) * 30, (i + 1) * 30 + 10]
+            step_points = [(i + 1) * 40 - 10, (i + 1) * 40, (i + 1) * 40 + 10]
             #step_points = [(i+1)*50]
             steps = steps + step_points
 
         obstacles = list(obstacles) + list(gate_frames)
 
         return gates, obstacles, steps
-
-    def _gen_gate_points(self, gate_list, obstacles):
-        gates = []
-        for i in range(len(gate_list)):
-            rot = gate_list[i][5]
-
-            gates = self._resolve_collision(gates, obstacles, gate_list[i], rot, -1)
-            gates.append(gate_list[i])
-            gates = self._resolve_collision(gates, obstacles, gate_list[i], rot, 1)
-
-        steps = []
-        for i in range(len(gate_list)):
-            step_points = [(i + 1) * 30 - 10, (i + 1) * 30, (i + 1) * 30 + 10]
-            # step_points = [(i+1)*50]
-            steps = steps + step_points
-        return gates, steps
 
     def _gen_obstacle_points(self, gate_list, obstacles):
         gate_frames = []
@@ -622,4 +607,20 @@ class Controller(BaseController):
 
         obstacles = list(obstacles) + list(gate_frames)
         return obstacles
+
+    def _gen_gate_points(self, gate_list, obstacles):
+        gates = []
+        for i in range(len(gate_list)):
+            rot = gate_list[i][5]
+
+            gates = self._resolve_collision(gates, obstacles, gate_list[i], rot, -1)
+            gates.append(gate_list[i])
+            gates = self._resolve_collision(gates, obstacles, gate_list[i], rot, 1)
+
+        steps = []
+        for i in range(len(gate_list)):
+            step_points = [(i + 1) * 40 - 10, (i + 1) * 40, (i + 1) * 40 + 10]
+            # step_points = [(i+1)*50]
+            steps = steps + step_points
+        return gates, steps
 
